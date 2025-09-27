@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		FED605282E88029200B216DD /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = FED605272E88029200B216DD /* .gitignore */; };
+		FED605382E88150400B216DD /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = FED605372E88150400B216DD /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		FED6050F2E88022000B216DD /* SpaceWalker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpaceWalker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FED605272E88029200B216DD /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		FED605372E88150400B216DD /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -50,6 +52,7 @@
 		FED605062E88022000B216DD = {
 			isa = PBXGroup;
 			children = (
+				FED605372E88150400B216DD /* README.md */,
 				FED605272E88029200B216DD /* .gitignore */,
 				FED605112E88022000B216DD /* SpaceWalker */,
 				FED605102E88022000B216DD /* Products */,
@@ -129,6 +132,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FED605282E88029200B216DD /* .gitignore in Resources */,
+				FED605382E88150400B216DD /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
