@@ -33,6 +33,15 @@ final class MainTabBarController: UITabBarController {
             selectedImage: UIImage(systemName: "square.grid.2x2.fill")
         )
 
-        viewControllers = [calendarNav, feedNav]
+        // 2: Map
+        let mapVC = MapViewController()
+        let mapNav = UINavigationController(rootViewController: mapVC)
+        mapNav.tabBarItem = UITabBarItem(
+            title: "Map",
+            image: UIImage(systemName: "map"),
+            selectedImage: UIImage(systemName: "map.fill")
+        )
+
+        viewControllers = [calendarNav, feedNav, mapNav]
     }
 }
