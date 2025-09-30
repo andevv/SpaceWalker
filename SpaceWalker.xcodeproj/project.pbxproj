@@ -15,7 +15,6 @@
 		FEFC87472E8A7650007A3685 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = FEFC87462E8A7650007A3685 /* Alamofire */; };
 		FEFC874A2E8A7668007A3685 /* RxCocoa in Frameworks */ = {isa = PBXBuildFile; productRef = FEFC87492E8A7668007A3685 /* RxCocoa */; };
 		FEFC874C2E8A7668007A3685 /* RxSwift in Frameworks */ = {isa = PBXBuildFile; productRef = FEFC874B2E8A7668007A3685 /* RxSwift */; };
-		FEFC874F2E8A76D4007A3685 /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = FEFC874E2E8A76D4007A3685 /* RealmSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,7 +49,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FEFC874F2E8A76D4007A3685 /* RealmSwift in Frameworks */,
 				FEFC87472E8A7650007A3685 /* Alamofire in Frameworks */,
 				FEFC87412E8A7627007A3685 /* Kingfisher in Frameworks */,
 				FEFC874C2E8A7668007A3685 /* RxSwift in Frameworks */,
@@ -106,7 +104,6 @@
 				FEFC87462E8A7650007A3685 /* Alamofire */,
 				FEFC87492E8A7668007A3685 /* RxCocoa */,
 				FEFC874B2E8A7668007A3685 /* RxSwift */,
-				FEFC874E2E8A76D4007A3685 /* RealmSwift */,
 				FE9B89952E8BE5030012E889 /* FSCalendar */,
 			);
 			productName = SpaceWalker;
@@ -142,7 +139,6 @@
 				FEFC87422E8A763F007A3685 /* XCRemoteSwiftPackageReference "SnapKit" */,
 				FEFC87452E8A7650007A3685 /* XCRemoteSwiftPackageReference "Alamofire" */,
 				FEFC87482E8A7668007A3685 /* XCRemoteSwiftPackageReference "RxSwift" */,
-				FEFC874D2E8A76D4007A3685 /* XCRemoteSwiftPackageReference "realm-swift" */,
 				FE9B89942E8BE5030012E889 /* XCRemoteSwiftPackageReference "FSCalendar" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -185,6 +181,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L3KYP426WW;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpaceWalker/Support/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SpaceWalker;
@@ -222,6 +219,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L3KYP426WW;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SpaceWalker/Support/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SpaceWalker;
@@ -435,14 +433,6 @@
 				minimumVersion = 6.9.0;
 			};
 		};
-		FEFC874D2E8A76D4007A3685 /* XCRemoteSwiftPackageReference "realm-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/realm/realm-swift";
-			requirement = {
-				kind = exactVersion;
-				version = 20.0.3;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -475,11 +465,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FEFC87482E8A7668007A3685 /* XCRemoteSwiftPackageReference "RxSwift" */;
 			productName = RxSwift;
-		};
-		FEFC874E2E8A76D4007A3685 /* RealmSwift */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = FEFC874D2E8A76D4007A3685 /* XCRemoteSwiftPackageReference "realm-swift" */;
-			productName = RealmSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -6,6 +6,9 @@
 //
 
 import UIKit
+import AVFoundation
+import Photos
+import CoreLocation   // [Location+Save] 위치
 import SnapKit
 import FSCalendar
 
@@ -31,8 +34,8 @@ final class CalendarViewController: UIViewController {
     // 필터 칩 (최대 3개)
     private let chipContainer = UIView()
     private let chipStack = UIStackView()
-    
-    private var calendarHeightConstraint: Constraint?   // ← 높이 제약 핸들 저장
+
+    private var calendarHeightConstraint: Constraint?
 
     private let calendar: FSCalendar = {
         let cal = FSCalendar()
@@ -40,8 +43,8 @@ final class CalendarViewController: UIViewController {
         cal.scrollEnabled = false
         cal.scope = .month
         cal.appearance.weekdayTextColor = .secondaryLabel
-        cal.appearance.headerMinimumDissolvedAlpha = 0 // 좌우 흐림 제거
-        cal.headerHeight = 0                           // 자체 헤더 숨김(커스텀 사용)
+        cal.appearance.headerMinimumDissolvedAlpha = 0
+        cal.headerHeight = 0
         cal.weekdayHeight = 22
         return cal
     }()
@@ -78,6 +81,10 @@ final class CalendarViewController: UIViewController {
     private var photos: [Date: UIImage] = [:]
     private let cal = Calendar.current
 
+    // [Location+Save] 위치 권한/값
+    private let locationManager = CLLocationManager()
+    private var currentLocation: CLLocation?
+
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -86,6 +93,7 @@ final class CalendarViewController: UIViewController {
         setupLayout()
         setupCalendar()
         setupChips()
+        setupLocationCapture()  // [Location+Save] 위치 설정
         refreshHeaderTitle()
         makeDummyPhotos(for: calendar.currentPage)
     }
@@ -135,7 +143,6 @@ final class CalendarViewController: UIViewController {
             make.height.equalTo(40)
         }
 
-
         monthBar.snp.remakeConstraints { make in
             make.top.equalTo(chipContainer.snp.bottom).offset(32)
             make.leading.trailing.equalToSuperview().inset(20)
@@ -159,7 +166,6 @@ final class CalendarViewController: UIViewController {
         calendar.snp.makeConstraints { make in
             make.top.equalTo(monthBar.snp.bottom).offset(16)
             make.leading.trailing.equalToSuperview().inset(10)
-            // 초기 높이는 임의값으로 잡고, 이후 delegate에서 실제 높이로 업데이트
             self.calendarHeightConstraint = make.height.equalTo(320).constraint
             make.bottom.lessThanOrEqualTo(bottomBar.snp.top).offset(-20)
         }
@@ -192,7 +198,7 @@ final class CalendarViewController: UIViewController {
         calendar.placeholderType = .none
         calendar.register(ThumbnailCalendarCell.self, forCellReuseIdentifier: ThumbnailCalendarCell.reuseID)
 
-        // 선택/오늘 기본 원을 전부 투명 처리해서 내부 동그라미가 안 보이게
+        // 기본 선택/오늘 원 숨김
         calendar.appearance.selectionColor = .clear
         calendar.appearance.todaySelectionColor = .clear
         calendar.appearance.borderSelectionColor = .clear
@@ -220,14 +226,23 @@ final class CalendarViewController: UIViewController {
         }
     }
 
+    // [Location+Save] 위치 권한 요청 & 업데이트 시작
+    private func setupLocationCapture() {
+        locationManager.delegate = self
+        // 사용자에게 권한 요청 (이미 허용됐으면 콜백 없이 바로 사용 가능)
+        locationManager.requestWhenInUseAuthorization()
+        // 배터리를 과도하게 쓰지 않도록 accuracy 적당히
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        locationManager.startUpdatingLocation()
+    }
+
     // MARK: - Actions
     @objc private func chipTapped(_ sender: UIButton) {
         selectedChipIndex = sender.tag
         for case let btn as UIButton in chipStack.arrangedSubviews {
             styleChip(btn, selected: btn.tag == selectedChipIndex)
         }
-        // 실제 필터링: 선택된 칩에 맞게 photos 재구성 후 reload
-        makeDummyPhotos(for: calendar.currentPage) // 데모는 색만 바꿈
+        makeDummyPhotos(for: calendar.currentPage)
         calendar.reloadData()
     }
 
@@ -248,10 +263,122 @@ final class CalendarViewController: UIViewController {
     }
 
     @objc private func didTapMission() {
-        // TODO: 미션 화면 전환 연결
-        let alert = UIAlertController(title: "미션", message: "미션 시작 로직을 연결하세요.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "확인", style: .default))
-        present(alert, animated: true)
+        presentCamera()
+    }
+
+    // MARK: - Camera & Photo Library
+    private func presentCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            // 시뮬레이터 등 → 포토 라이브러리로 대체 (읽기 권한 필요)
+            requestPhotoReadPermission { [weak self] granted in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    granted ? self.presentPhotoLibrary() : self.showPhotoDeniedAlert()
+                }
+            }
+            return
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            showCameraPicker()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    granted ? self?.showCameraPicker() : self?.showCameraDeniedAlert()
+                }
+            }
+        default:
+            showCameraDeniedAlert()
+        }
+    }
+
+    private func showCameraPicker() {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.allowsEditing = false
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func presentPhotoLibrary() {
+        let picker = UIImagePickerController()
+        picker.sourceType = .photoLibrary
+        picker.allowsEditing = false
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    // MARK: - Permissions
+    private func requestPhotoReadPermission(_ completion: @escaping (Bool) -> Void) {
+        if #available(iOS 14, *) {
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            switch status {
+            case .authorized, .limited: completion(true)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
+                    completion(newStatus == .authorized || newStatus == .limited)
+                }
+            default: completion(false)
+            }
+        } else {
+            let status = PHPhotoLibrary.authorizationStatus()
+            switch status {
+            case .authorized: completion(true)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization { newStatus in
+                    completion(newStatus == .authorized)
+                }
+            default: completion(false)
+            }
+        }
+    }
+
+    private func requestPhotoAddPermission(_ completion: @escaping (Bool) -> Void) {
+        if #available(iOS 14, *) {
+            let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+            switch status {
+            case .authorized: completion(true)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
+                    completion(newStatus == .authorized)
+                }
+            default: completion(false)
+            }
+        } else {
+            let status = PHPhotoLibrary.authorizationStatus()
+            switch status {
+            case .authorized: completion(true)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization { newStatus in
+                    completion(newStatus == .authorized)
+                }
+            default: completion(false)
+            }
+        }
+    }
+
+    // MARK: - Alerts
+    private func showCameraDeniedAlert() {
+        let ac = UIAlertController(title: "카메라 권한 필요",
+                                   message: "설정 > SpaceWalker > 카메라에서 권한을 허용해 주세요.",
+                                   preferredStyle: .alert)
+        ac.addAction(UIAlertAction(title: "취소", style: .cancel))
+        ac.addAction(UIAlertAction(title: "설정 열기", style: .default, handler: { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        }))
+        present(ac, animated: true)
+    }
+
+    private func showPhotoDeniedAlert() {
+        let ac = UIAlertController(title: "사진 접근 권한 필요",
+                                   message: "설정 > SpaceWalker > 사진에서 권한을 허용해 주세요.",
+                                   preferredStyle: .alert)
+        ac.addAction(UIAlertAction(title: "확인", style: .default))
+        present(ac, animated: true)
     }
 
     private func refreshHeaderTitle() {
@@ -262,16 +389,20 @@ final class CalendarViewController: UIViewController {
 
     // MARK: - Chip helpers
     private func makeChipButton(title: String, selected: Bool) -> UIButton {
-        let b = UIButton(type: .system)
-        b.setTitle(title, for: .normal)
+        var config = UIButton.Configuration.plain()
+        config.title = title
+        config.baseForegroundColor = .label
+        config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14)
+
+        let b = UIButton(configuration: config)
         b.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
         b.layer.cornerRadius = 16
         b.layer.borderWidth = 1
         b.layer.borderColor = UIColor.systemGray4.cgColor
         styleChip(b, selected: selected)
         return b
     }
+
     private func styleChip(_ b: UIButton, selected: Bool) {
         if selected {
             b.backgroundColor = .systemBlue
@@ -286,7 +417,6 @@ final class CalendarViewController: UIViewController {
 
     // MARK: - Dummy Photos (데모용)
     private func makeDummyPhotos(for page: Date) {
-        // 칩에 따라 다른 컬러로 더미 생성
         let color: UIColor = [UIColor.systemBlue, .systemOrange, .systemGreen][selectedChipIndex % 3]
         func colorImage(_ color: UIColor) -> UIImage {
             let r = CGRect(x: 0, y: 0, width: 100, height: 100)
@@ -297,7 +427,6 @@ final class CalendarViewController: UIViewController {
             return img
         }
         photos.removeAll()
-        // 예시: 임의 날짜에 썸네일 배치
         for d in [1,3,5,8,12,15,18,20,22,25,27,30] {
             if let date = dateFor(day: d, in: page) {
                 photos[date] = colorImage(color)
@@ -305,7 +434,6 @@ final class CalendarViewController: UIViewController {
         }
     }
 
-    // day → 해당 month의 Date
     private func dateFor(day: Int, in page: Date) -> Date? {
         let y = cal.component(.year, from: page)
         let m = cal.component(.month, from: page)
@@ -321,11 +449,8 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
         let cell = calendar.dequeueReusableCell(withIdentifier: ThumbnailCalendarCell.reuseID, for: date, at: position) as! ThumbnailCalendarCell
         let day = cal.component(.day, from: date)
 
-        // 현재 달 여부 / 선택 여부
         let dimmed = (position != .current)
         let selected = (selectedDate != nil) && cal.isDate(selectedDate!, inSameDayAs: date)
-
-        // 썸네일
         let image = photos.first { cal.isDate($0.key, inSameDayAs: date) }?.value
         cell.configure(day: day, image: image, selected: selected, dimmed: dimmed)
         return cell
@@ -333,8 +458,6 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
 
     func calendar(_ calendar: FSCalendar, didSelect date: Date, at monthPosition: FSCalendarMonthPosition) {
         selectedDate = date
-
-        // 다른 달의 셀을 탭했을 때 페이지 이동
         if monthPosition != .current {
             calendar.setCurrentPage(date, animated: true)
             refreshHeaderTitle()
@@ -342,13 +465,11 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
         }
         calendar.reloadData()
     }
-    
+
     func calendar(_ calendar: FSCalendar, boundingRectWillChange bounds: CGRect, animated: Bool) {
-        // 달마다 필요한 높이(4~6주)를 FSCalendar가 알려줌 → 제약 업데이트
-        calendar.snp.updateConstraints { make in
+        calendar.snp.updateConstraints { _ in
             self.calendarHeightConstraint?.update(offset: bounds.height)
         }
-        // 애니메이션 반영
         UIView.animate(withDuration: animated ? 0.25 : 0.0) {
             self.view.layoutIfNeeded()
         }
@@ -360,11 +481,97 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
         calendar.reloadData()
     }
 
-    // 날짜 타이틀을 숨기고(우린 뱃지를 쓰므로), 기본 폰트/색 영향 최소화
-    func calendar(_ calendar: FSCalendar, appearance: FSCalendarAppearance, titleDefaultColorFor date: Date) -> UIColor? {
-        .clear
+    func calendar(_ calendar: FSCalendar, appearance: FSCalendarAppearance, titleDefaultColorFor date: Date) -> UIColor? { .clear }
+    func calendar(_ calendar: FSCalendar, appearance: FSCalendarAppearance, titleSelectionColorFor date: Date) -> UIColor? { .clear }
+}
+
+// MARK: - UIImagePickerControllerDelegate
+extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+
+    func imagePickerController(_ picker: UIImagePickerController,
+                               didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+
+        // 카메라 촬영/포토 라이브러리 선택 공통
+        let image = info[.originalImage] as? UIImage
+        picker.dismiss(animated: true) { [weak self] in
+            guard let self, let image else { return }
+
+            // 앨범 저장 권한 확인 후, 위치 포함 저장 시도
+            self.requestPhotoAddPermission { granted in
+                guard granted else {
+                    DispatchQueue.main.async { self.showPhotoDeniedAlert() }
+                    return
+                }
+                self.savePhotoWithLocation(image)   // [Location+Save] 위치 포함 저장
+            }
+        }
     }
-    func calendar(_ calendar: FSCalendar, appearance: FSCalendarAppearance, titleSelectionColorFor date: Date) -> UIColor? {
-        .clear
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+    }
+}
+
+// MARK: - Save with Location (PHPhotoLibrary)
+extension CalendarViewController {
+
+    /// 현재 위치가 있으면 위치 메타데이터와 함께 저장, 없으면 위치 없이 저장
+    private func savePhotoWithLocation(_ image: UIImage) {
+        let jpegData = image.jpegData(compressionQuality: 0.95)
+        guard let data = jpegData else { return }
+
+        let location = currentLocation // 캡처
+
+        PHPhotoLibrary.shared().performChanges({
+            let req = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            // (필요 시 UTI 지정 가능) options.uniformTypeIdentifier = "public.jpeg"
+            req.addResource(with: .photo, data: data, options: options)
+            req.creationDate = Date()
+            if let location { req.location = location }    // ✅ 위치 메타데이터 포함
+        }, completionHandler: { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    // (옵션) 선택된 날짜 썸네일 업데이트 등
+                    let ac = UIAlertController(title: "저장 완료",
+                                               message: location != nil ? "위치가 포함되었습니다." : "위치 없이 저장되었습니다.",
+                                               preferredStyle: .alert)
+                    ac.addAction(UIAlertAction(title: "확인", style: .default))
+                    self.present(ac, animated: true)
+                } else {
+                    let ac = UIAlertController(title: "저장 실패",
+                                               message: error?.localizedDescription ?? "사진을 저장하지 못했습니다.",
+                                               preferredStyle: .alert)
+                    ac.addAction(UIAlertAction(title: "확인", style: .default))
+                    self.present(ac, animated: true)
+                }
+            }
+        })
+    }
+}
+
+// MARK: - CLLocationManagerDelegate
+extension CalendarViewController: CLLocationManagerDelegate {
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.startUpdatingLocation()
+        default:
+            // 권한 없으면 위치 없이 저장되도록만 처리
+            manager.stopUpdatingLocation()
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        // 최신/정확한 값으로 유지
+        currentLocation = locations.last
+        // 너무 잦은 업데이트는 불필요하니, 한 번 받았으면 멈춰도 OK
+        // manager.stopUpdatingLocation()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // 위치 실패시 위치 없이 저장만 가능
+        print("Location error: \(error.localizedDescription)")
     }
 }
