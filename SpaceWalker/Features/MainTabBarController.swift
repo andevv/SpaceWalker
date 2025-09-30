@@ -42,6 +42,14 @@ final class MainTabBarController: UITabBarController {
             selectedImage: UIImage(systemName: "map.fill")
         )
 
-        viewControllers = [calendarNav, feedNav, mapNav]
+        // 3: myPage
+        let myPageNav = UINavigationController(rootViewController: MyPageViewController())
+        myPageNav.tabBarItem = UITabBarItem(
+            title: "MyPage",
+            image: UIImage(systemName: "person"),
+            selectedImage: UIImage(systemName: "person.fill")
+        )
+
+        viewControllers = [calendarNav, feedNav, mapNav, myPageNav]
     }
 }
