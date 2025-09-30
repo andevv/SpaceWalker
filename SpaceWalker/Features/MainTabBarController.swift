@@ -24,17 +24,15 @@ final class MainTabBarController: UITabBarController {
             selectedImage: UIImage(systemName: "calendar.fill")
         )
 
-        // 1번 탭: 예시용 (추후 교체 가능)
-        let dummyVC = UIViewController()
-        dummyVC.view.backgroundColor = .systemGroupedBackground
-        dummyVC.title = "Dummy"
-        let dummyNav = UINavigationController(rootViewController: dummyVC)
-        dummyNav.tabBarItem = UITabBarItem(
-            title: "Dummy",
+        // 1번 탭: Feed
+        let feedVC = FeedViewController()
+        let feedNav = UINavigationController(rootViewController: feedVC)
+        feedNav.tabBarItem = UITabBarItem(
+            title: "Feed",
             image: UIImage(systemName: "square.grid.2x2"),
             selectedImage: UIImage(systemName: "square.grid.2x2.fill")
         )
 
-        viewControllers = [calendarNav, dummyNav]
+        viewControllers = [calendarNav, feedNav]
     }
 }
