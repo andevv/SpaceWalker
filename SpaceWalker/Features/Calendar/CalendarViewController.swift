@@ -8,7 +8,7 @@
 import UIKit
 import AVFoundation
 import Photos
-import CoreLocation   // [Location+Save] 위치
+import CoreLocation
 import SnapKit
 import FSCalendar
 
@@ -528,7 +528,7 @@ extension CalendarViewController {
             // (필요 시 UTI 지정 가능) options.uniformTypeIdentifier = "public.jpeg"
             req.addResource(with: .photo, data: data, options: options)
             req.creationDate = Date()
-            if let location { req.location = location }    // ✅ 위치 메타데이터 포함
+            if let location { req.location = location }    // 위치 메타데이터 포함
         }, completionHandler: { success, error in
             DispatchQueue.main.async {
                 if success {

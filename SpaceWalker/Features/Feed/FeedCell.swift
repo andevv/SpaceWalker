@@ -8,9 +8,6 @@
 import UIKit
 import SnapKit
 
-import UIKit
-import SnapKit
-
 final class FeedCell: UICollectionViewCell {
     static let reuseID = "FeedCell"
 
@@ -34,10 +31,10 @@ final class FeedCell: UICollectionViewCell {
 
     let likeButton: UIButton = {
         var config = UIButton.Configuration.plain()
-        config.imagePlacement = .all
+        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+
         let btn = UIButton(configuration: config)
-        btn.tintColor = .white
-        btn.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         btn.accessibilityLabel = "좋아요"
         return btn
     }()
@@ -87,8 +84,12 @@ final class FeedCell: UICollectionViewCell {
     private func setLiked(_ liked: Bool) {
         let name = liked ? "heart.fill" : "heart"
         likeButton.setImage(UIImage(systemName: name), for: .normal)
-        likeBackdrop.isHidden = false // 항상 살짝 보이게
+        // 상태별 색상 적용: false → 흰색, true → 빨간색
+        likeButton.tintColor = liked ? .systemRed : .white
+
+        likeBackdrop.isHidden = false
         likeBackdrop.alpha = liked ? 0.35 : 0.25
+
         // 약간의 팝 효과(선택적)
         if liked {
             UIView.animate(withDuration: 0.12, animations: {

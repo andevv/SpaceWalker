@@ -27,11 +27,11 @@ final class SpaceSelectViewModel: BaseViewModel {
     private let disposeBag = DisposeBag()
 
     private let dummySpaces: [Space] = [
-        Space(id: .init(), name: "🌌 Deep Space"),
-        Space(id: .init(), name: "🚀 Launch Day"),
-        Space(id: .init(), name: "🛰️ Satellite Hunt"),
-        Space(id: .init(), name: "🌙 Moonlight Shot"),
-        Space(id: .init(), name: "✨ Star Trails")
+        Space(id: .init(), name: "🌌 색상"),
+        Space(id: .init(), name: "🚀 감정"),
+        Space(id: .init(), name: "🛰️ 물건"),
+        Space(id: .init(), name: "🌙 분위기"),
+        Space(id: .init(), name: "✨ 공간")
     ]
 
     func transform(input: Input) -> Output {
