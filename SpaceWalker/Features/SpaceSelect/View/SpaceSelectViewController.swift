@@ -36,8 +36,8 @@ final class SpaceSelectViewController: UIViewController {
         tv.backgroundColor = .systemBackground
         tv.separatorStyle = .none
         tv.register(SpaceCell.self, forCellReuseIdentifier: SpaceCell.reuseID)
-        tv.estimatedRowHeight = 76
-        tv.rowHeight = 76
+        tv.estimatedRowHeight = 80
+        tv.rowHeight = 80
         return tv
     }()
 

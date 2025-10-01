@@ -46,7 +46,7 @@ final class SpaceCell: UITableViewCell {
 
         cardView.snp.makeConstraints { make in
             make.edges.equalToSuperview().inset(UIEdgeInsets(top: 8, left: 20, bottom: 8, right: 20))
-            make.height.equalTo(64)
+            //make.height.equalTo(64)
         }
         titleLabel.snp.makeConstraints { make in
             make.leading.equalToSuperview().inset(16)
