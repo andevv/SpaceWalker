@@ -171,10 +171,10 @@ final class CalendarViewController: UIViewController {
         }
 
         bottomBar.backgroundColor = .systemBackground
-        bottomBar.layer.shadowColor = UIColor.black.withAlphaComponent(0.08).cgColor
-        bottomBar.layer.shadowOpacity = 1
-        bottomBar.layer.shadowRadius = 8
-        bottomBar.layer.shadowOffset = CGSize(width: 0, height: -2)
+        //bottomBar.layer.shadowColor = UIColor.black.withAlphaComponent(0.08).cgColor
+        //bottomBar.layer.shadowOpacity = 1
+        //bottomBar.layer.shadowRadius = 8
+        //bottomBar.layer.shadowOffset = CGSize(width: 0, height: -2)
         bottomBar.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide)

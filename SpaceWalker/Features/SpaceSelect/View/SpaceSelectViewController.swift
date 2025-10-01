@@ -87,10 +87,10 @@ final class SpaceSelectViewController: UIViewController {
 
         // Bottom bar style
         bottomBar.backgroundColor = .systemBackground
-        bottomBar.layer.shadowColor = UIColor.black.withAlphaComponent(0.08).cgColor
-        bottomBar.layer.shadowOpacity = 1
-        bottomBar.layer.shadowRadius = 8
-        bottomBar.layer.shadowOffset = CGSize(width: 0, height: -2)
+        //bottomBar.layer.shadowColor = UIColor.black.withAlphaComponent(0.08).cgColor
+        //bottomBar.layer.shadowOpacity = 1
+        //bottomBar.layer.shadowRadius = 8
+        //bottomBar.layer.shadowOffset = CGSize(width: 0, height: -2)
 
         titleLabel.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).inset(24)
