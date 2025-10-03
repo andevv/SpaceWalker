@@ -5,16 +5,12 @@
 //  Created by andev on 9/30/25.
 //
 
-//  FeedViewController.swift
-//  SpaceWalker
-
 import UIKit
 import SnapKit
 
 struct FeedItem {
     let image: UIImage
     var isLiked: Bool
-    let height: CGFloat
     var likeCount: Int
     let authorName: String
     let missionTitle: String
@@ -34,13 +30,17 @@ final class FeedViewController: UIViewController {
 
     // MARK: - Init
     init() {
-        // 2열 레이아웃
-        let layout = UICollectionViewFlowLayout()
-        layout.scrollDirection = .vertical
-        layout.minimumLineSpacing = 12
-        layout.minimumInteritemSpacing = 12
+        // MasonryLayout 사용
+        let layout = MasonryLayout()
+        layout.numberOfColumns = 2
+        layout.columnSpacing = 12
+        layout.rowSpacing = 12
+        layout.contentInsets = .zero
+
         self.collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(nibName: nil, bundle: nil)
+
+        layout.delegate = self // 델리게이트 연결
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -92,7 +92,7 @@ final class FeedViewController: UIViewController {
 
     // MARK: - Data
     private func makeDummyItems() {
-        // 단색 이미지 생성 유틸
+        // 다양한 비율의 단색 이미지 만들기
         func colorImage(_ color: UIColor, size: CGSize) -> UIImage {
             let rect = CGRect(origin: .zero, size: size)
             UIGraphicsBeginImageContextWithOptions(rect.size, true, 0)
@@ -102,21 +102,28 @@ final class FeedViewController: UIViewController {
             return img
         }
 
+        let sizes: [CGSize] = [
+            CGSize(width: 300, height: 180),  // 가로형
+            CGSize(width: 300, height: 420),  // 세로형
+            CGSize(width: 300, height: 300),  // 정방형
+            CGSize(width: 300, height: 220),
+            CGSize(width: 300, height: 460),
+            CGSize(width: 300, height: 260),
+            CGSize(width: 300, height: 360),
+            CGSize(width: 300, height: 190)
+        ]
         let colors: [UIColor] = [.systemBlue, .systemTeal, .systemGreen, .systemOrange,
                                  .systemPink, .systemPurple, .systemRed, .brown]
-
-        let heights: [CGFloat] = [160, 200, 140, 180, 210, 190, 220, 170]
         let authors = ["김철수", "이영희", "박민수", "최지훈", "김민지", "정다은", "오세훈", "장유나"]
         let missions = ["자연 풍경 감상하기", "업무 공간 정리", "독서 기록", "운동 루틴",
                         "아트 작품", "여행 추억", "요리 레시피", "개발 프로젝트"]
 
         items = (0..<8).map { i in
+            let size = sizes[i % sizes.count]
             let color = colors[i % colors.count]
-            let h = heights[i % heights.count]
             return FeedItem(
-                image: colorImage(color, size: CGSize(width: 200, height: Int(h))),
+                image: colorImage(color, size: size),
                 isLiked: Bool.random(),
-                height: h,
                 likeCount: Int.random(in: 20...300),
                 authorName: authors[i % authors.count],
                 missionTitle: missions[i % missions.count]
@@ -131,8 +138,8 @@ final class FeedViewController: UIViewController {
         for case let btn as UIButton in chipStack.arrangedSubviews {
             styleChip(btn, selected: btn.tag == selectedFilterIndex)
         }
-        // TODO: 실제 필터링
         collectionView.reloadData()
+        collectionView.collectionViewLayout.invalidateLayout() // 레이아웃 갱신
     }
 
     private func makeChipButton(title: String, selected: Bool) -> UIButton {
@@ -160,9 +167,8 @@ final class FeedViewController: UIViewController {
     }
 }
 
-// MARK: - DataSource / FlowLayout
-extension FeedViewController: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-
+// MARK: - DataSource
+extension FeedViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         items.count
     }
@@ -176,7 +182,6 @@ extension FeedViewController: UICollectionViewDataSource, UICollectionViewDelega
         let item = items[indexPath.item]
         cell.configure(with: item)
 
-        // 좋아요 토글
         cell.onLikeTapped = { [weak self, weak cell] in
             guard let self = self else { return }
             self.items[indexPath.item].isLiked.toggle()
@@ -186,41 +191,42 @@ extension FeedViewController: UICollectionViewDataSource, UICollectionViewDelega
                 self.collectionView.reloadItems(at: [indexPath])
             }
         }
-        
         cell.onReportTapped = { [weak self] in
             let ac = UIAlertController(title: "신고하기",
                                        message: "이 사진을 신고할까요?",
                                        preferredStyle: .alert)
             ac.addAction(UIAlertAction(title: "취소", style: .cancel))
-            ac.addAction(UIAlertAction(title: "신고", style: .destructive, handler: { _ in
-                // TODO: 신고 API 호출
-            }))
+            ac.addAction(UIAlertAction(title: "신고", style: .destructive))
             self?.present(ac, animated: true)
         }
         return cell
     }
+}
 
-    // 2열 워터폴 느낌
+// MARK: - MasonryLayoutDelegate
+extension FeedViewController: MasonryLayoutDelegate {
     func collectionView(_ collectionView: UICollectionView,
-                        layout collectionViewLayout: UICollectionViewLayout,
-                        sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = (collectionView.bounds.width - 12) / 2
+                        heightForItemAt indexPath: IndexPath,
+                        with width: CGFloat) -> CGFloat {
+        // 이미지 비율대로 셀 높이 계산
         let item = items[indexPath.item]
-        return CGSize(width: width, height: item.height)
+        let size = item.image.size
+        guard size.width > 0 else { return width } // fallback
+        let aspect = size.height / size.width
+        return width * aspect
     }
 }
 
-// MARK: - UICollectionViewDelegate (상세 진입)
+// MARK: - Navigation (상세 push)
 extension FeedViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let item = items[indexPath.item]
-
         let detail = FeedDetailViewController(model: FeedDetailModel(
             image: item.image,
             likeCount: item.likeCount,
             authorName: item.authorName,
             missionTitle: item.missionTitle
         ))
-
-        navigationController?.pushViewController(detail, animated: true)    }
+        navigationController?.pushViewController(detail, animated: true)
+    }
 }
