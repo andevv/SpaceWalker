@@ -5,13 +5,19 @@
 //  Created by andev on 9/30/25.
 //
 
+//  FeedViewController.swift
+//  SpaceWalker
+
 import UIKit
 import SnapKit
 
 struct FeedItem {
-    let color: UIColor
+    let image: UIImage
     var isLiked: Bool
     let height: CGFloat
+    var likeCount: Int
+    let authorName: String
+    let missionTitle: String
 }
 
 final class FeedViewController: UIViewController {
@@ -28,13 +34,12 @@ final class FeedViewController: UIViewController {
 
     // MARK: - Init
     init() {
-        // Pinterest-like layout (2열)
+        // 2열 레이아웃
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
         layout.minimumLineSpacing = 12
         layout.minimumInteritemSpacing = 12
         self.collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
-
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -87,18 +92,36 @@ final class FeedViewController: UIViewController {
 
     // MARK: - Data
     private func makeDummyItems() {
+        // 단색 이미지 생성 유틸
+        func colorImage(_ color: UIColor, size: CGSize) -> UIImage {
+            let rect = CGRect(origin: .zero, size: size)
+            UIGraphicsBeginImageContextWithOptions(rect.size, true, 0)
+            color.setFill(); UIRectFill(rect)
+            let img = UIGraphicsGetImageFromCurrentImageContext()!
+            UIGraphicsEndImageContext()
+            return img
+        }
+
         let colors: [UIColor] = [.systemBlue, .systemTeal, .systemGreen, .systemOrange,
                                  .systemPink, .systemPurple, .systemRed, .brown]
-        items = [
-            FeedItem(color: colors[0], isLiked: false, height: 160),
-            FeedItem(color: colors[1], isLiked: false, height: 200),
-            FeedItem(color: colors[2], isLiked: false, height: 140),
-            FeedItem(color: colors[3], isLiked: false, height: 180),
-            FeedItem(color: colors[4], isLiked: false, height: 210),
-            FeedItem(color: colors[5], isLiked: false, height: 190),
-            FeedItem(color: colors[6], isLiked: false, height: 220),
-            FeedItem(color: colors[7], isLiked: false, height: 170),
-        ]
+
+        let heights: [CGFloat] = [160, 200, 140, 180, 210, 190, 220, 170]
+        let authors = ["김철수", "이영희", "박민수", "최지훈", "김민지", "정다은", "오세훈", "장유나"]
+        let missions = ["자연 풍경 감상하기", "업무 공간 정리", "독서 기록", "운동 루틴",
+                        "아트 작품", "여행 추억", "요리 레시피", "개발 프로젝트"]
+
+        items = (0..<8).map { i in
+            let color = colors[i % colors.count]
+            let h = heights[i % heights.count]
+            return FeedItem(
+                image: colorImage(color, size: CGSize(width: 200, height: Int(h))),
+                isLiked: Bool.random(),
+                height: h,
+                likeCount: Int.random(in: 20...300),
+                authorName: authors[i % authors.count],
+                missionTitle: missions[i % missions.count]
+            )
+        }
         collectionView.reloadData()
     }
 
@@ -108,7 +131,7 @@ final class FeedViewController: UIViewController {
         for case let btn as UIButton in chipStack.arrangedSubviews {
             styleChip(btn, selected: btn.tag == selectedFilterIndex)
         }
-        // TODO: 실제 필터링 로직 (지금은 전체 items 그대로)
+        // TODO: 실제 필터링
         collectionView.reloadData()
     }
 
@@ -153,16 +176,26 @@ extension FeedViewController: UICollectionViewDataSource, UICollectionViewDelega
         let item = items[indexPath.item]
         cell.configure(with: item)
 
-        // 좋아요 탭 콜백
+        // 좋아요 토글
         cell.onLikeTapped = { [weak self, weak cell] in
             guard let self = self else { return }
             self.items[indexPath.item].isLiked.toggle()
-            // 해당 아이템만 업데이트
             if let c = cell {
                 c.configure(with: self.items[indexPath.item])
             } else {
                 self.collectionView.reloadItems(at: [indexPath])
             }
+        }
+        
+        cell.onReportTapped = { [weak self] in
+            let ac = UIAlertController(title: "신고하기",
+                                       message: "이 사진을 신고할까요?",
+                                       preferredStyle: .alert)
+            ac.addAction(UIAlertAction(title: "취소", style: .cancel))
+            ac.addAction(UIAlertAction(title: "신고", style: .destructive, handler: { _ in
+                // TODO: 신고 API 호출
+            }))
+            self?.present(ac, animated: true)
         }
         return cell
     }
@@ -175,4 +208,19 @@ extension FeedViewController: UICollectionViewDataSource, UICollectionViewDelega
         let item = items[indexPath.item]
         return CGSize(width: width, height: item.height)
     }
+}
+
+// MARK: - UICollectionViewDelegate (상세 진입)
+extension FeedViewController: UICollectionViewDelegate {
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let item = items[indexPath.item]
+
+        let detail = FeedDetailViewController(model: FeedDetailModel(
+            image: item.image,
+            likeCount: item.likeCount,
+            authorName: item.authorName,
+            missionTitle: item.missionTitle
+        ))
+
+        navigationController?.pushViewController(detail, animated: true)    }
 }
