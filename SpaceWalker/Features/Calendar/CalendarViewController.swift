@@ -458,11 +458,59 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
 
     func calendar(_ calendar: FSCalendar, didSelect date: Date, at monthPosition: FSCalendarMonthPosition) {
         selectedDate = date
+
+        // 다른 달의 셀을 탭했을 때는 먼저 페이지 이동
         if monthPosition != .current {
             calendar.setCurrentPage(date, animated: true)
             refreshHeaderTitle()
             makeDummyPhotos(for: date)
         }
+
+        // 1) 해당 날짜에 사진이 있으면 → 상세 모달 표시
+        if let image = photos.first(where: { cal.isDate($0.key, inSameDayAs: date) })?.value {
+
+            // 해상도(픽셀 단위) 계산
+            let pixelW = Int(image.size.width * image.scale)
+            let pixelH = Int(image.size.height * image.scale)
+            let resolutionText = "\(pixelW) × \(pixelH)"
+
+            // 시간 텍스트
+            let tf = DateFormatter()
+            tf.locale = Locale(identifier: "ko_KR")
+            tf.dateFormat = "a h:mm"
+            let shotTime = tf.string(from: date)
+
+            // 상세 모델 구성 (데모 값은 필요에 맞게 바꾸세요)
+            let model = SpacePhotoDetailModel(
+                image: image,
+                date: date,
+                missionTitle: "자연 풍경 감상하기",   // 또는 실제 미션 텍스트
+                isPublic: true,                     // 실제 공개 여부로 교체
+                likeCount: 42,                      // 실제 좋아요 수로 교체
+                authorName: "김철수",               // 실제 사용자명
+                locationName: "북한산",             // 실제 위치명 (없으면 nil)
+                deviceName: UIDevice.current.name,  // 예시
+                resolutionText: resolutionText,
+                fileSizeText: "—",                  // 필요시 실제 파일 크기 채우기
+                shotTimeText: shotTime
+            )
+
+            let vc = CalendarDetailViewController(model: model)
+
+            // 삭제 시 달력 썸네일 제거 후 갱신
+            vc.onDelete = { [weak self] in
+                guard let self = self else { return }
+                if let key = self.photos.first(where: { self.cal.isDate($0.key, inSameDayAs: date) })?.key {
+                    self.photos.removeValue(forKey: key)
+                    self.calendar.reloadData()
+                }
+            }
+
+            present(vc, animated: true)
+            return
+        }
+
+        // 2) 사진이 없으면 기존 동작 유지
         calendar.reloadData()
     }
 
