@@ -14,7 +14,8 @@ final class SignUpViewController: UIViewController {
 
     // MARK: - UI Components
     private let logoImageView: UIImageView = {
-        let iv = UIImageView(image: UIImage(named: "AppLogo"))
+        let iv = UIImageView(image: UIImage(systemName: "star.fill"))
+        iv.tintColor = .label
         iv.contentMode = .scaleAspectFit
         return iv
     }()
@@ -25,6 +26,19 @@ final class SignUpViewController: UIViewController {
         return btn
     }()
 
+    // 로그인 버튼 아래 링크 영역
+    private let linksStack = UIStackView() // “서비스 이용약관” / “개인정보 처리방침”
+    private let termsButton = UIButton(type: .system)
+    private let privacyButton = UIButton(type: .system)
+    private let dotLabel: UILabel = {
+        let lb = UILabel()
+        lb.text = " · "
+        lb.textColor = .tertiaryLabel
+        lb.textAlignment = .center
+        lb.font = .systemFont(ofSize: 14, weight: .regular)
+        return lb
+    }()
+
     private let bottomTextView: UITextView = {
         let tv = UITextView()
         tv.isEditable = false
@@ -32,7 +46,7 @@ final class SignUpViewController: UIViewController {
         tv.textAlignment = .center
         tv.backgroundColor = .clear
         tv.textColor = .secondaryLabel
-        tv.font = .systemFont(ofSize: 13)
+        tv.font = .systemFont(ofSize: 10)
         tv.text = "로그인을 진행하면 서비스 이용약관 및 개인정보 처리방침에 동의한 것으로 간주됩니다."
         tv.textContainerInset = .zero
         tv.textContainer.lineFragmentPadding = 0
@@ -47,6 +61,7 @@ final class SignUpViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         setupLayout()
+        setupLinks()
         appleButton.addTarget(self, action: #selector(startAppleLogin), for: .touchUpInside)
     }
 
@@ -54,6 +69,7 @@ final class SignUpViewController: UIViewController {
     private func setupLayout() {
         view.addSubview(logoImageView)
         view.addSubview(appleButton)
+        view.addSubview(linksStack)
         view.addSubview(bottomTextView)
 
         logoImageView.snp.makeConstraints { make in
@@ -68,10 +84,57 @@ final class SignUpViewController: UIViewController {
             make.height.equalTo(52)
         }
 
+        // 먼저 bottomTextView를 바닥에 고정
         bottomTextView.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview().inset(16)
             make.bottom.equalTo(view.safeAreaLayoutGuide).inset(20)
         }
+
+        // linksStack을 bottomTextView 위 16pt에 배치
+        linksStack.snp.makeConstraints { make in
+            make.bottom.equalTo(bottomTextView.snp.top).offset(-16)
+            make.centerX.equalToSuperview()
+        }
+    }
+
+    private func setupLinks() {
+        linksStack.axis = .horizontal
+        linksStack.spacing = 8
+        linksStack.alignment = .firstBaseline // 기준선 정렬로 가운데 점 위치 안정화
+        linksStack.distribution = .equalCentering
+
+        func styleLinkButton(_ b: UIButton, title: String) {
+            var config = UIButton.Configuration.plain()
+            config.title = title
+            config.baseForegroundColor = .secondaryLabel
+            config.contentInsets = .zero
+            b.configuration = config
+            b.titleLabel?.font = .systemFont(ofSize: 12, weight: .regular)
+
+            let attr = NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: UIColor.secondaryLabel,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ]
+            )
+            b.setAttributedTitle(attr, for: .normal)
+        }
+
+        styleLinkButton(termsButton, title: "서비스 이용약관")
+        styleLinkButton(privacyButton, title: "개인정보 처리방침")
+
+        termsButton.addTarget(self, action: #selector(openTerms), for: .touchUpInside)
+        privacyButton.addTarget(self, action: #selector(openPrivacy), for: .touchUpInside)
+
+        // 가운데 점의 너비가 과도하게 늘어나지 않도록 우선순위 조정
+        dotLabel.setContentHuggingPriority(.required, for: .horizontal)
+        dotLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        linksStack.addArrangedSubview(termsButton)
+        linksStack.addArrangedSubview(dotLabel)
+        linksStack.addArrangedSubview(privacyButton)
     }
 
     // MARK: - Apple Login Flow
@@ -87,6 +150,55 @@ final class SignUpViewController: UIViewController {
         controller.delegate = self
         controller.presentationContextProvider = self
         controller.performRequests()
+    }
+
+    // MARK: - Terms / Privacy (더미 표시)
+    @objc private func openTerms() {
+        let dummy = """
+        [서비스 이용약관 - 더미]
+        SpaceWalker 서비스를 이용해주셔서 감사합니다.
+        본 약관은 서비스의 이용조건 및 절차, 회원과 회사의 권리·의무 등 기본적인 사항을 규정합니다.
+
+        1. 목적
+        2. 용어의 정의
+        3. 약관의 효력 및 변경
+        4. 회원의 의무
+        5. 서비스의 제공 및 중단
+        6. 기타
+
+        ※ 실제 약관은 서버 API 연동 후 교체됩니다.
+        """
+        let vc = SimpleDocViewController(titleText: "서비스 이용약관", bodyText: dummy)
+        presentSheet(vc)
+    }
+
+    @objc private func openPrivacy() {
+        let dummy = """
+        [개인정보 처리방침 - 더미]
+        SpaceWalker는 이용자의 개인정보를 중요하게 생각합니다.
+        수집·이용·보관·파기에 관한 정책을 다음과 같이 안내합니다.
+
+        1. 수집하는 개인정보의 항목
+        2. 개인정보의 수집 및 이용목적
+        3. 개인정보의 보유 및 이용기간
+        4. 개인정보의 제3자 제공 및 위탁
+        5. 이용자의 권리와 행사 방법
+        6. 기타
+
+        ※ 실제 방침은 서버 API 연동 후 교체됩니다.
+        """
+        let vc = SimpleDocViewController(titleText: "개인정보 처리방침", bodyText: dummy)
+        presentSheet(vc)
+    }
+
+    private func presentSheet(_ vc: UIViewController) {
+        vc.modalPresentationStyle = .pageSheet
+        if let sheet = vc.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = 16
+        }
+        present(vc, animated: true)
     }
 
     // MARK: - Nonce Helpers
@@ -131,13 +243,16 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         let userIdentifier = credential.user
         print("Apple 로그인 성공")
         print("userIdentifier:", userIdentifier)
-        print("idToken (JWT):", idToken)
+        print("idToken (JWT):", idToken.prefix(40), "...")
 
-        // 서버 통신 준비 (현재는 OFF)
         #if DEBUG
-        showDebugAlert(userIdentifier: userIdentifier, idToken: idToken)
-        #else
-        sendToServer(idToken: idToken, userIdentifier: userIdentifier)
+        let alert = UIAlertController(
+            title: "로그인 성공",
+            message: "User ID: \(userIdentifier)\n\nJWT 앞부분:\n\(idToken.prefix(40))...",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "확인", style: .default))
+        present(alert, animated: true)
         #endif
     }
 
@@ -152,43 +267,11 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         alert.addAction(UIAlertAction(title: "확인", style: .cancel))
         present(alert, animated: true)
     }
-
-    // MARK: - Local Debug (for Simulator)
-    private func showDebugAlert(userIdentifier: String, idToken: String) {
-        let alert = UIAlertController(
-            title: "로그인 성공",
-            message: "User ID: \(userIdentifier)\n\nJWT 앞부분:\n\(idToken.prefix(40))...",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "확인", style: .default))
-        present(alert, animated: true)
-    }
-
-    // MARK: - Future Server Communication
-    private func sendToServer(idToken: String, userIdentifier: String) {
-        // TODO: 나중에 서버(Spring Boot) 연결 시 활성화
-        // 예시 URL: https://api.spacewalker.com/api/v1/auth/apple
-        /*
-        AF.request("https://api.spacewalker.com/api/v1/auth/apple",
-                   method: .post,
-                   parameters: ["id_token": idToken, "user_identifier": userIdentifier],
-                   encoding: JSONEncoding.default)
-        .validate()
-        .responseDecodable(of: AuthResponse.self) { response in
-            switch response.result {
-            case .success(let result):
-                print("서버 응답:", result)
-            case .failure(let error):
-                print("서버 통신 오류:", error)
-            }
-        }
-        */
-    }
 }
 
 // MARK: - ASAuthorizationControllerPresentationContextProviding
 extension SignUpViewController: ASAuthorizationControllerPresentationContextProviding {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        return view.window!
+        view.window!
     }
 }
