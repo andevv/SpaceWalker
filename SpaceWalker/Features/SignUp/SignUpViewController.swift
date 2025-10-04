@@ -241,6 +241,7 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         }
 
         let userIdentifier = credential.user
+        UserDefaults.standard.set(userIdentifier, forKey: "apple_user_id")
         print("Apple 로그인 성공")
         print("userIdentifier:", userIdentifier)
         print("idToken (JWT):", idToken.prefix(40), "...")

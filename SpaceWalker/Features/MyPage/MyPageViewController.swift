@@ -56,8 +56,7 @@ final class MyPageViewController: UIViewController {
         config.baseBackgroundColor = .systemGray6
         config.baseForegroundColor = .label
         config.cornerStyle = .medium
-        let b = UIButton(configuration: config)
-        return b
+        return UIButton(configuration: config)
     }()
 
     // 설정 섹션
@@ -126,7 +125,6 @@ final class MyPageViewController: UIViewController {
         }
         avatarView.layer.cornerRadius = 60
 
-        // 닉네임 카드 스타일
         nicknameCard.backgroundColor = .secondarySystemBackground
         nicknameCard.layer.cornerRadius = 16
 
@@ -173,7 +171,7 @@ final class MyPageViewController: UIViewController {
             make.top.equalTo(settingsStack.snp.bottom).offset(28)
             make.leading.trailing.equalToSuperview().inset(20)
             make.height.equalTo(52)
-            make.bottom.equalToSuperview().inset(24) // scroll content bottom
+            make.bottom.equalToSuperview().inset(24)
         }
     }
 
@@ -216,25 +214,60 @@ final class MyPageViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    @objc private func openPolicy() {
-        toast("개인정보 처리방침 화면으로 연결")
-    }
-    @objc private func openTerms() {
-        toast("서비스 이용약관 화면으로 연결")
-    }
-    @objc private func openOSS() {
-        toast("오픈소스 라이선스 화면으로 연결")
-    }
+    @objc private func openPolicy() { toast("개인정보 처리방침 화면으로 연결") }
+    @objc private func openTerms() { toast("서비스 이용약관 화면으로 연결") }
+    @objc private func openOSS() { toast("오픈소스 라이선스 화면으로 연결") }
 
+    // MARK: - 더미 회원탈퇴 로직
     @objc private func didTapWithdraw() {
-        let alert = UIAlertController(title: "회원탈퇴",
-                                      message: "정말로 탈퇴하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
-                                      preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: "회원탈퇴",
+            message: "정말로 탈퇴하시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
+            preferredStyle: .alert
+        )
         alert.addAction(UIAlertAction(title: "취소", style: .cancel))
         alert.addAction(UIAlertAction(title: "탈퇴", style: .destructive, handler: { _ in
-            self.toast("탈퇴 처리 로직 실행")
+            self.performDummyWithdrawal()
         }))
         present(alert, animated: true)
+    }
+
+    private func performDummyWithdrawal() {
+        // 1. 탈퇴 처리 중 로딩 시뮬레이션
+        let loading = UIAlertController(title: nil, message: "탈퇴 처리 중...", preferredStyle: .alert)
+        present(loading, animated: true)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            loading.dismiss(animated: true) {
+                // 2. 로컬 데이터 초기화 시뮬레이션
+                UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
+                UserDefaults.standard.synchronize()
+
+                // 3. 완료 메시지
+                let success = UIAlertController(
+                    title: "탈퇴 완료",
+                    message: "회원탈퇴가 완료되었습니다.",
+                    preferredStyle: .alert
+                )
+                success.addAction(UIAlertAction(title: "확인", style: .default, handler: { _ in
+                    // 로그인 화면으로 이동 (root 변경)
+                    let signUpVC = SignUpViewController()
+                    let nav = UINavigationController(rootViewController: signUpVC)
+                    nav.modalPresentationStyle = .fullScreen
+
+                    // ✅ 최신 방식: UIWindowScene → window 접근
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let window = scene.windows.first {
+                        window.rootViewController = nav
+                        window.makeKeyAndVisible()
+                    } else {
+                        // 혹시 모를 예외 (Scene 미사용 시)
+                        self.present(nav, animated: true)
+                    }
+                }))
+                self.present(success, animated: true)
+            }
+        }
     }
 
     private func toast(_ message: String) {
