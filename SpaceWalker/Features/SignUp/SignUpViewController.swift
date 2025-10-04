@@ -7,34 +7,16 @@
 
 import UIKit
 import SnapKit
-import RxSwift
-import RxCocoa
 import AuthenticationServices
+import CryptoKit
 
-class SignUpViewController: UIViewController {
+final class SignUpViewController: UIViewController {
 
     // MARK: - UI Components
     private let logoImageView: UIImageView = {
-        let iv = UIImageView()
+        let iv = UIImageView(image: UIImage(named: "AppLogo"))
         iv.contentMode = .scaleAspectFit
-        iv.clipsToBounds = true
-        // Replace "AppLogo" with your actual asset name
-        iv.image = UIImage(named: "AppLogo")
         return iv
-    }()
-
-    private let googleButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setTitle("Google로 계속하기", for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        btn.backgroundColor = .white
-        btn.setTitleColor(.black, for: .normal)
-        btn.layer.cornerRadius = 12
-        btn.layer.masksToBounds = true
-        btn.layer.borderColor = UIColor.separator.cgColor
-        btn.layer.borderWidth = 1
-        // TODO: Add Google logo image to the left if asset is available
-        return btn
     }()
 
     private let appleButton: ASAuthorizationAppleIDButton = {
@@ -51,104 +33,162 @@ class SignUpViewController: UIViewController {
         tv.backgroundColor = .clear
         tv.textColor = .secondaryLabel
         tv.font = .systemFont(ofSize: 13)
-        tv.text = "회원가입을 진행하면 서비스 이용약관 및 개인정보 처리방침에 동의한 것으로 간주됩니다."
+        tv.text = "로그인을 진행하면 서비스 이용약관 및 개인정보 처리방침에 동의한 것으로 간주됩니다."
         tv.textContainerInset = .zero
         tv.textContainer.lineFragmentPadding = 0
         return tv
     }()
-    
-    private let signupTextButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setTitle("계정이 없으신가요? 회원가입", for: .normal)
-        btn.setTitleColor(.secondaryLabel, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 14)
-        btn.contentHorizontalAlignment = .center
-        return btn
-    }()
 
-    // MARK: - MVVM
-    private let viewModel = SignUpViewModel()
-    private let disposeBag = DisposeBag()
+    // MARK: - Apple Sign In Properties
+    private var currentNonce: String?
 
-    // MARK: - Setup
-    private func setupViews() {
+    // MARK: - Lifecycle
+    override func viewDidLoad() {
+        super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        view.addSubview(logoImageView)
-        view.addSubview(googleButton)
-        view.addSubview(appleButton)
-        view.addSubview(signupTextButton)
-        view.addSubview(bottomTextView)
+        setupLayout()
+        appleButton.addTarget(self, action: #selector(startAppleLogin), for: .touchUpInside)
     }
 
-    private func setupConstraints() {
-        let safe = view.safeAreaLayoutGuide
+    // MARK: - Layout
+    private func setupLayout() {
+        view.addSubview(logoImageView)
+        view.addSubview(appleButton)
+        view.addSubview(bottomTextView)
 
         logoImageView.snp.makeConstraints { make in
-            make.top.equalTo(safe).offset(80)
+            make.top.equalTo(view.safeAreaLayoutGuide).offset(100)
             make.centerX.equalToSuperview()
             make.width.height.equalTo(120)
         }
 
-        googleButton.snp.makeConstraints { make in
-            make.top.equalTo(logoImageView.snp.bottom).offset(40)
+        appleButton.snp.makeConstraints { make in
+            make.top.equalTo(logoImageView.snp.bottom).offset(60)
             make.leading.trailing.equalToSuperview().inset(24)
             make.height.equalTo(52)
         }
 
-        appleButton.snp.makeConstraints { make in
-            make.top.equalTo(googleButton.snp.bottom).offset(12)
-            make.leading.trailing.equalTo(googleButton)
-            make.height.equalTo(52)
-        }
-        
-        signupTextButton.snp.makeConstraints { make in
-            make.leading.trailing.equalToSuperview().inset(16)
-            make.bottom.equalTo(bottomTextView.snp.top).offset(-12)
-            make.height.equalTo(24)
-        }
-
         bottomTextView.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview().inset(16)
-            make.bottom.equalTo(safe).inset(12)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).inset(20)
         }
     }
 
-    private func bindViewModel() {
-        let input = SignUpViewModel.Input(
-            googleTap: googleButton.rx.tap.asObservable(),
-            appleTap: appleButton.rx.controlEvent(.touchUpInside).asObservable(),
-            signupTap: signupTextButton.rx.tap.asObservable()
-        )
+    // MARK: - Apple Login Flow
+    @objc private func startAppleLogin() {
+        let provider = ASAuthorizationAppleIDProvider()
+        let request = provider.createRequest()
+        request.requestedScopes = [] // 사용자 정보 불필요
+        let nonce = randomNonceString()
+        currentNonce = nonce
+        request.nonce = sha256(nonce)
 
-        let output = viewModel.transform(input: input)
-
-        output.showGoogleLogin
-            .emit(onNext: { [weak self] in
-                // TODO: Trigger Google OAuth flow
-                print("Google OAuth 시작")
-            })
-            .disposed(by: disposeBag)
-
-        output.showAppleLogin
-            .emit(onNext: { [weak self] in
-                // TODO: Trigger Apple OAuth flow
-                print("Apple OAuth 시작")
-            })
-            .disposed(by: disposeBag)
-
-        output.showSignUp
-            .emit(onNext: { [weak self] in
-                // TODO: Navigate to sign up flow
-                print("회원가입 플로우로 이동")
-            })
-            .disposed(by: disposeBag)
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        controller.performRequests()
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
+    // MARK: - Nonce Helpers
+    private func randomNonceString(length: Int = 32) -> String {
+        let charset: [Character] =
+            Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
 
-        setupViews()
-        setupConstraints()
-        bindViewModel()
+        while remainingLength > 0 {
+            let randoms = (0 ..< 16).map { _ in UInt8.random(in: 0...255) }
+            randoms.forEach { random in
+                if remainingLength == 0 { return }
+                if random < charset.count {
+                    result.append(charset[Int(random) % charset.count])
+                    remainingLength -= 1
+                }
+            }
+        }
+        return result
+    }
+
+    private func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        return hashedData.compactMap { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// MARK: - ASAuthorizationControllerDelegate
+extension SignUpViewController: ASAuthorizationControllerDelegate {
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else { return }
+
+        guard let tokenData = credential.identityToken,
+              let idToken = String(data: tokenData, encoding: .utf8) else {
+            print("ID Token 없음")
+            return
+        }
+
+        let userIdentifier = credential.user
+        print("Apple 로그인 성공")
+        print("userIdentifier:", userIdentifier)
+        print("idToken (JWT):", idToken)
+
+        // 서버 통신 준비 (현재는 OFF)
+        #if DEBUG
+        showDebugAlert(userIdentifier: userIdentifier, idToken: idToken)
+        #else
+        sendToServer(idToken: idToken, userIdentifier: userIdentifier)
+        #endif
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithError error: Error) {
+        print("Apple 로그인 실패:", error.localizedDescription)
+        let alert = UIAlertController(
+            title: "로그인 실패",
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "확인", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    // MARK: - Local Debug (for Simulator)
+    private func showDebugAlert(userIdentifier: String, idToken: String) {
+        let alert = UIAlertController(
+            title: "로그인 성공",
+            message: "User ID: \(userIdentifier)\n\nJWT 앞부분:\n\(idToken.prefix(40))...",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "확인", style: .default))
+        present(alert, animated: true)
+    }
+
+    // MARK: - Future Server Communication
+    private func sendToServer(idToken: String, userIdentifier: String) {
+        // TODO: 나중에 서버(Spring Boot) 연결 시 활성화
+        // 예시 URL: https://api.spacewalker.com/api/v1/auth/apple
+        /*
+        AF.request("https://api.spacewalker.com/api/v1/auth/apple",
+                   method: .post,
+                   parameters: ["id_token": idToken, "user_identifier": userIdentifier],
+                   encoding: JSONEncoding.default)
+        .validate()
+        .responseDecodable(of: AuthResponse.self) { response in
+            switch response.result {
+            case .success(let result):
+                print("서버 응답:", result)
+            case .failure(let error):
+                print("서버 통신 오류:", error)
+            }
+        }
+        */
+    }
+}
+
+// MARK: - ASAuthorizationControllerPresentationContextProviding
+extension SignUpViewController: ASAuthorizationControllerPresentationContextProviding {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        return view.window!
     }
 }
