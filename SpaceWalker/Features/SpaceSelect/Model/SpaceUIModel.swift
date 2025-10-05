@@ -7,9 +7,9 @@
 
 import Foundation
 
-// dummy
+@MainActor
 struct SpaceUIModel: Hashable {
-    let id: UUID
+    let id: Int
     let title: String
 
     init(space: Space) {

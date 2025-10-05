@@ -22,27 +22,23 @@ final class SpaceSelectViewModel: BaseViewModel {
         let selectedSpaces: Driver<[Space]>
     }
 
+    private let repository = SpaceRepository()
     private let spacesRelay = BehaviorRelay<[Space]>(value: [])
     private let selectedSpacesRelay = BehaviorRelay<[Space]>(value: [])
     private let disposeBag = DisposeBag()
 
-    private let dummySpaces: [Space] = [
-        Space(id: .init(), name: "🌌 색상"),
-        Space(id: .init(), name: "🚀 감정"),
-        Space(id: .init(), name: "🛰️ 물건"),
-        Space(id: .init(), name: "🌙 분위기"),
-        Space(id: .init(), name: "✨ 공간")
-    ]
-
     func transform(input: Input) -> Output {
-        // 초기 더미 로드
         input.viewWillAppear
-            .take(1)
-            .map { [dummySpaces] in dummySpaces }
+            .flatMapLatest { [repository] _ in
+                //repository.fetchSpaces()
+                repository.fetchDummySpaces() //TODO: - 서버 API로 변경 필요
+                    .asObservable()
+                    .catchAndReturn([]) // 실패 시 빈 배열
+            }
             .bind(to: spacesRelay)
             .disposed(by: disposeBag)
 
-        // 선택/해제 처리
+        // 선택/해제 로직
         input.itemSelected
             .withLatestFrom(spacesRelay) { indexPath, spaces in
                 spaces[indexPath.row]
@@ -50,10 +46,8 @@ final class SpaceSelectViewModel: BaseViewModel {
             .withLatestFrom(selectedSpacesRelay) { tapped, current -> [Space] in
                 var new = current
                 if let idx = new.firstIndex(of: tapped) {
-                    // 이미 선택됨 → 해제
                     new.remove(at: idx)
                 } else if new.count < 3 {
-                    // 아직 3개 미만일 때만 추가
                     new.append(tapped)
                 }
                 return new
@@ -61,7 +55,9 @@ final class SpaceSelectViewModel: BaseViewModel {
             .bind(to: selectedSpacesRelay)
             .disposed(by: disposeBag)
 
+        // UI 표시용 SpaceUIModel 변환
         let items = spacesRelay
+            .observe(on: MainScheduler.instance)
             .map { $0.map(SpaceUIModel.init) }
             .asDriver(onErrorJustReturn: [])
 

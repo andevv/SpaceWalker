@@ -7,8 +7,7 @@
 
 import Foundation
 
-// dummy
 struct Space: Equatable, Hashable {
-    let id: UUID
+    let id: Int
     let name: String
 }
