@@ -15,11 +15,14 @@ final class SpaceSelectViewModel: BaseViewModel {
     struct Input {
         let viewWillAppear: Observable<Void>
         let itemSelected: Observable<IndexPath>
+        let proceedTap: Observable<Void>
     }
 
     struct Output {
         let items: Driver<[SpaceUIModel]>
         let selectedSpaces: Driver<[Space]>
+        let joinSuccess: Signal<[JoinedSpace]>
+        let joinFailure: Signal<(message: String, invalidIds: [Int])>
     }
 
     private let repository = SpaceRepository()
@@ -54,16 +57,44 @@ final class SpaceSelectViewModel: BaseViewModel {
             }
             .bind(to: selectedSpacesRelay)
             .disposed(by: disposeBag)
+        
+        // 조인
+        let joinResult = input.proceedTap
+            .withLatestFrom(selectedSpacesRelay)
+            .flatMapLatest { [repository] spaces -> Observable<Event<[JoinedSpace]>> in
+                let ids = spaces.map(\.id)
+                return repository.joinSpacesDummy(spaceIds: ids) //TODO: - 서버 API로 변경 필요
+                    .asObservable()
+                    .materialize()
+            }
+            .share()
 
-        // UI 표시용 SpaceUIModel 변환
+        let joinSuccess = joinResult
+            .compactMap { $0.element }
+            .asSignal(onErrorRecover: { _ in .empty() })
+
+        let joinFailure = joinResult
+            .compactMap { $0.error }
+            .map { error -> (message: String, invalidIds: [Int]) in
+                if case let JoinSpacesDomainError.invalidSpaceIds(invalidIds, message) = error {
+                    return (message: message, invalidIds: invalidIds)
+                } else if case let JoinSpacesDomainError.unknown(message) = error {
+                    return (message: message, invalidIds: [])
+                }
+                return (message: "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", invalidIds: [])
+            }
+            .asSignal(onErrorRecover: { _ in .empty() })
+
+        // UI용 아이템 변환
         let items = spacesRelay
-            .observe(on: MainScheduler.instance)
             .map { $0.map(SpaceUIModel.init) }
             .asDriver(onErrorJustReturn: [])
 
         return Output(
             items: items,
-            selectedSpaces: selectedSpacesRelay.asDriver()
+            selectedSpaces: selectedSpacesRelay.asDriver(),
+            joinSuccess: joinSuccess,
+            joinFailure: joinFailure
         )
     }
 }

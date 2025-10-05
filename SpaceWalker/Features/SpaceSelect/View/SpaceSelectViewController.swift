@@ -131,7 +131,8 @@ final class SpaceSelectViewController: UIViewController {
         let input = SpaceSelectViewModel.Input(
             viewWillAppear: self.rx.methodInvoked(#selector(UIViewController.viewWillAppear(_:)))
                 .map { _ in () },
-            itemSelected: tableView.rx.itemSelected.asObservable()
+            itemSelected: tableView.rx.itemSelected.asObservable(),
+            proceedTap: proceedButton.rx.tap.asObservable()
         )
 
         let output = viewModel.transform(input: input)
@@ -176,6 +177,30 @@ final class SpaceSelectViewController: UIViewController {
                 owner.proceedButton.alpha = enabled ? 1.0 : 0.5
             }
             .disposed(by: disposeBag)
+        
+        // 성공: 메인 탭으로 전환
+        output.joinSuccess
+            .emit(with: self) { owner, joined in
+                // joined 안에 spaceId/name/joinedAt(Date) 있음 – 필요시 로컬 저장
+                owner.switchToMainTabBar()
+            }
+            .disposed(by: disposeBag)
+
+        // 실패: invalidIds 표시
+        output.joinFailure
+            .emit(with: self) { owner, payload in
+                let (message, invalidIds) = payload
+                let msg: String
+                if invalidIds.isEmpty {
+                    msg = message
+                } else {
+                    msg = "\(message)\n\n유효하지 않은 ID: \(invalidIds.map(String.init).joined(separator: ", "))"
+                }
+                let ac = UIAlertController(title: "선택한 Space 확인", message: msg, preferredStyle: .alert)
+                ac.addAction(UIAlertAction(title: "확인", style: .default))
+                owner.present(ac, animated: true)
+            }
+            .disposed(by: disposeBag)
 
         // 기본 하이라이트 즉시 제거
         tableView.rx.itemSelected
@@ -184,15 +209,15 @@ final class SpaceSelectViewController: UIViewController {
             }
             .disposed(by: disposeBag)
 
-        // 버튼 탭 → root를 MainTabBarController로 교체
-        proceedButton.rx.tap
-            .withLatestFrom(output.selectedSpaces.map { !$0.isEmpty })
-            .filter { $0 }
-            .observe(on: MainScheduler.instance)
-            .subscribe(with: self) { owner, _ in
-                owner.switchToMainTabBar()
-            }
-            .disposed(by: disposeBag)
+//        // 버튼 탭 → root를 MainTabBarController로 교체
+//        proceedButton.rx.tap
+//            .withLatestFrom(output.selectedSpaces.map { !$0.isEmpty })
+//            .filter { $0 }
+//            .observe(on: MainScheduler.instance)
+//            .subscribe(with: self) { owner, _ in
+//                owner.switchToMainTabBar()
+//            }
+//            .disposed(by: disposeBag)
     }
 
     // MARK: - Root switch

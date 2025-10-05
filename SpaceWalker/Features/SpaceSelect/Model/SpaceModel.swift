@@ -11,3 +11,9 @@ struct Space: Equatable, Hashable {
     let id: Int
     let name: String
 }
+
+struct JoinedSpace {
+    let id: Int
+    let name: String
+    let joinedAt: Date
+}
