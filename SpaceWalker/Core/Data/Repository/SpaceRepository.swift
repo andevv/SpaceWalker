@@ -14,7 +14,7 @@ final class SpaceRepository {
     func fetchSpaces() -> Single<[Space]> {
         // 1) 제네릭 표기 제거 + 2) 응답 타입을 캐스팅으로 제공
         let single: Single<SpacesResponse> = NetworkManager.shared.request(
-            "/api/v1/spaces",
+            "/api/v1/space/all",
             method: .get,
             parameters: nil,
             requiresAuth: true
