@@ -31,7 +31,6 @@ final class NetworkManager {
                 "Content-Type": "application/json"
             ]
 
-            // Authorization 헤더 추가
             if requiresAuth, let token = UserSessionStore.shared.accessToken {
                 headers.add(name: "Authorization", value: "Bearer \(token)")
             }
@@ -98,8 +97,9 @@ final class NetworkManager {
 extension NetworkManager {
 
     enum DummyRoute: Equatable {
-        case getSpaces
-        case joinSpaces([Int])
+        case getSpaces                // GET /api/v1/space/all
+        case joinSpaces([Int])        // POST /api/v1/space/join
+        case getMySpaces              // GET /api/v1/space/my-space
 
         init?(endpoint: String, method: HTTPMethod, parameters: [String: Any]?) {
             switch (endpoint, method) {
@@ -108,6 +108,8 @@ extension NetworkManager {
             case ("/api/v1/space/join", .post):
                 let ids = (parameters?["spaceIds"] as? [Int]) ?? []
                 self = .joinSpaces(ids)
+            case ("/api/v1/space/my-space", .get):
+                self = .getMySpaces
             default:
                 return nil
             }
@@ -206,6 +208,19 @@ extension NetworkManager {
                 }
             ]
             return try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        case .getMySpaces:
+            let json = """
+            {
+              "spaces": [
+                { "spaceId": 1, "name": "Study", "joinedAt": "2025-09-20T00:10:00Z" },
+                { "spaceId": 2, "name": "Travel", "joinedAt": "2025-09-20T00:10:00Z" },
+                { "spaceId": 3, "name": "Color", "joinedAt": "2025-09-21T00:10:00Z" }
+              ],
+              "total": 3
+            }
+            """
+            return Data(json.utf8)
         }
     }
 

@@ -34,3 +34,15 @@ struct JoinSpacesErrorResponse: Decodable, Error {
     let message: String
     let invalidIds: [Int]?
 }
+
+// /api/v1/space/my-space 응답
+struct MySpaceDTO: Decodable {
+    let spaceId: Int
+    let name: String
+    let joinedAt: String // ISO8601
+}
+
+struct MySpacesResponse: Decodable {
+    let spaces: [MySpaceDTO]
+    let total: Int
+}

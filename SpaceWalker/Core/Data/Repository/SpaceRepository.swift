@@ -58,6 +58,20 @@ final class SpaceRepository {
         )
         return parseJoinResponse(req)
     }
+    
+    // MARK: - Fetch MySpace (더미)
+    func fetchMySpacesDummy() -> Single<[JoinedSpace]> {
+        let single: Single<MySpacesResponse> = NetworkManager.shared.requestDummy(
+            "/api/v1/space/my-space",
+            method: .get
+        )
+        return single.map { resp in
+            resp.spaces.compactMap { dto in
+                guard let date = ISO8601DateFormatter().date(from: dto.joinedAt) else { return nil }
+                return JoinedSpace(id: dto.spaceId, name: dto.name, joinedAt: date)
+            }
+        }
+    }
 
     // MARK: - 공통 파서
     private func parseJoinResponse(_ req: Single<Data>) -> Single<[JoinedSpace]> {

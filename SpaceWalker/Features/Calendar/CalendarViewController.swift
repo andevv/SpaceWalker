@@ -11,6 +11,7 @@ import Photos
 import CoreLocation
 import SnapKit
 import FSCalendar
+import RxSwift
 
 final class CalendarViewController: UIViewController {
 
@@ -73,7 +74,7 @@ final class CalendarViewController: UIViewController {
     }()
 
     // MARK: - State
-    private var spaces: [String] = ["개인", "업무", "공부"]
+    private var spaces: [String] = []
     private var selectedChipIndex: Int = 0
     private var selectedDate: Date?
 
@@ -85,6 +86,10 @@ final class CalendarViewController: UIViewController {
     private let locationManager = CLLocationManager()
     private var currentLocation: CLLocation?
 
+    // MARK: - Networking
+    private let repository = SpaceRepository()
+    private let disposeBag = DisposeBag()
+
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -92,10 +97,11 @@ final class CalendarViewController: UIViewController {
 
         setupLayout()
         setupCalendar()
-        setupChips()
         setupLocationCapture()  // [Location+Save] 위치 설정
         refreshHeaderTitle()
-        makeDummyPhotos(for: calendar.currentPage)
+
+        // 칩을 서버(더미)에서 받아와 구성
+        fetchMySpaces()
     }
 
     // MARK: - Layout
@@ -171,10 +177,6 @@ final class CalendarViewController: UIViewController {
         }
 
         bottomBar.backgroundColor = .systemBackground
-        //bottomBar.layer.shadowColor = UIColor.black.withAlphaComponent(0.08).cgColor
-        //bottomBar.layer.shadowOpacity = 1
-        //bottomBar.layer.shadowRadius = 8
-        //bottomBar.layer.shadowOffset = CGSize(width: 0, height: -2)
         bottomBar.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide)
@@ -215,6 +217,26 @@ final class CalendarViewController: UIViewController {
         }
     }
 
+    // 서버(더미)에서 스페이스 목록을 받아와 칩 구성
+    private func fetchMySpaces() {
+        repository.fetchMySpacesDummy() // JoinedSpace 배열
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] joined in
+                guard let self else { return }
+                self.spaces = joined.map { $0.name }
+                self.selectedChipIndex = 0
+                self.setupChips()
+
+                // 칩 반영 후 썸네일 갱신
+                self.makeDummyPhotos(for: self.calendar.currentPage)
+                self.calendar.reloadData()
+            }, onFailure: { error in
+                print("MySpaces fetch failed:", error.localizedDescription)
+                // 실패시에도 기본 동작 유지를 위해 칩/달력 최소 갱신
+            })
+            .disposed(by: disposeBag)
+    }
+
     private func setupChips() {
         chipStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         // 최대 3개만
@@ -229,9 +251,7 @@ final class CalendarViewController: UIViewController {
     // [Location+Save] 위치 권한 요청 & 업데이트 시작
     private func setupLocationCapture() {
         locationManager.delegate = self
-        // 사용자에게 권한 요청 (이미 허용됐으면 콜백 없이 바로 사용 가능)
         locationManager.requestWhenInUseAuthorization()
-        // 배터리를 과도하게 쓰지 않도록 accuracy 적당히
         locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         locationManager.startUpdatingLocation()
     }
@@ -480,18 +500,18 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
             tf.dateFormat = "a h:mm"
             let shotTime = tf.string(from: date)
 
-            // 상세 모델 구성 (데모 값은 필요에 맞게 바꾸세요)
+            // 상세 모델 구성 (데모 값)
             let model = SpacePhotoDetailModel(
                 image: image,
                 date: date,
-                missionTitle: "자연 풍경 감상하기",   // 또는 실제 미션 텍스트
-                isPublic: true,                     // 실제 공개 여부로 교체
-                likeCount: 42,                      // 실제 좋아요 수로 교체
-                authorName: "김철수",               // 실제 사용자명
-                locationName: "북한산",             // 실제 위치명 (없으면 nil)
-                deviceName: UIDevice.current.name,  // 예시
+                missionTitle: "자연 풍경 감상하기",
+                isPublic: true,
+                likeCount: 42,
+                authorName: "김철수",
+                locationName: "북한산",
+                deviceName: UIDevice.current.name,
                 resolutionText: resolutionText,
-                fileSizeText: "—",                  // 필요시 실제 파일 크기 채우기
+                fileSizeText: "—",
                 shotTimeText: shotTime
             )
 
@@ -573,14 +593,12 @@ extension CalendarViewController {
         PHPhotoLibrary.shared().performChanges({
             let req = PHAssetCreationRequest.forAsset()
             let options = PHAssetResourceCreationOptions()
-            // (필요 시 UTI 지정 가능) options.uniformTypeIdentifier = "public.jpeg"
             req.addResource(with: .photo, data: data, options: options)
             req.creationDate = Date()
             if let location { req.location = location }    // 위치 메타데이터 포함
         }, completionHandler: { success, error in
             DispatchQueue.main.async {
                 if success {
-                    // (옵션) 선택된 날짜 썸네일 업데이트 등
                     let ac = UIAlertController(title: "저장 완료",
                                                message: location != nil ? "위치가 포함되었습니다." : "위치 없이 저장되었습니다.",
                                                preferredStyle: .alert)
@@ -606,20 +624,16 @@ extension CalendarViewController: CLLocationManagerDelegate {
         case .authorizedWhenInUse, .authorizedAlways:
             manager.startUpdatingLocation()
         default:
-            // 권한 없으면 위치 없이 저장되도록만 처리
             manager.stopUpdatingLocation()
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        // 최신/정확한 값으로 유지
         currentLocation = locations.last
-        // 너무 잦은 업데이트는 불필요하니, 한 번 받았으면 멈춰도 OK
         // manager.stopUpdatingLocation()
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // 위치 실패시 위치 없이 저장만 가능
         print("Location error: \(error.localizedDescription)")
     }
 }
