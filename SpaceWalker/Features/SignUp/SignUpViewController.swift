@@ -262,6 +262,24 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
                     print("서버 로그인 성공")
                     print("AccessToken:", response.accessToken)
                     print("RefreshToken:", response.refreshToken)
+                    
+                    // 로그인 성공 시 Root 교체 (CrossDissolve 애니메이션 포함)
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let delegate = scene.delegate as? SceneDelegate,
+                       let window = delegate.window {
+
+                        let newRoot = MainTabBarController()
+
+                        UIView.transition(
+                            with: window,
+                            duration: 0.4,
+                            options: .transitionCrossDissolve,
+                            animations: {
+                                window.rootViewController = newRoot
+                            },
+                            completion: nil
+                        )
+                    }
 
                     #if DEBUG
                     let alert = UIAlertController(

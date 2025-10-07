@@ -11,13 +11,21 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
 
-
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = (scene as? UIWindowScene) else { return }
-            let window = UIWindow(windowScene: windowScene)
-            window.rootViewController = UINavigationController(rootViewController: SignUpViewController())
-            window.makeKeyAndVisible()
-            self.window = window
+        
+        window = UIWindow(windowScene: windowScene)
+
+        // 로그인 여부 확인
+        if let token = UserSessionStore.shared.accessToken, !token.isEmpty {
+            print("로그인 상태 → MainTabBarController로 이동")
+            window?.rootViewController = MainTabBarController()
+        } else {
+            print("비로그인 상태 → SignUpViewController로 이동")
+            window?.rootViewController = SignUpViewController()
+        }
+
+        window?.makeKeyAndVisible()
     }
 
     func sceneDidDisconnect(_ scene: UIScene) {
