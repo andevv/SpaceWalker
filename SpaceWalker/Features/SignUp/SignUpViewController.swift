@@ -244,7 +244,7 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         UserDefaults.standard.set(userIdentifier, forKey: "apple_user_id")
         print("Apple 로그인 성공")
         print("userIdentifier:", userIdentifier)
-        print("idToken (JWT):", idToken.prefix(40), "...")
+        print("idToken (JWT):", idToken)
 
         #if DEBUG
         let alert = UIAlertController(
