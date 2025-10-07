@@ -9,6 +9,8 @@ import UIKit
 import SnapKit
 import AuthenticationServices
 import CryptoKit
+import RxSwift
+import RxCocoa
 
 final class SignUpViewController: UIViewController {
 
@@ -55,6 +57,8 @@ final class SignUpViewController: UIViewController {
 
     // MARK: - Apple Sign In Properties
     private var currentNonce: String?
+    
+    private let disposeBag = DisposeBag()
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
@@ -246,15 +250,46 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         print("userIdentifier:", userIdentifier)
         print("idToken (JWT):", idToken)
 
-        #if DEBUG
-        let alert = UIAlertController(
-            title: "로그인 성공",
-            message: "User ID: \(userIdentifier)\n\nJWT 앞부분:\n\(idToken.prefix(40))...",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "확인", style: .default))
-        present(alert, animated: true)
-        #endif
+        // 서버 요청
+        let repo = AppleLoginRepository()
+        repo.loginWithApple(idToken: idToken)
+            .observe(on: MainScheduler.instance)
+            .subscribe(
+                onSuccess: { response in
+                    UserSessionStore.shared.accessToken = response.accessToken
+                    UserSessionStore.shared.refreshToken = response.refreshToken
+
+                    print("서버 로그인 성공")
+                    print("AccessToken:", response.accessToken)
+                    print("RefreshToken:", response.refreshToken)
+
+                    #if DEBUG
+                    let alert = UIAlertController(
+                        title: "로그인 성공",
+                        message: "AccessToken 앞부분:\n\(response.accessToken)",
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: "확인", style: .default))
+                    self.present(alert, animated: true)
+                    #endif
+                },
+                onFailure: { error in
+                    var message = "알 수 없는 오류가 발생했습니다."
+                    if case let AppleLoginError.invalidAuthCode(msg) = error {
+                        message = msg
+                    } else if case let AppleLoginError.unknown(msg) = error {
+                        message = msg
+                    }
+                    let alert = UIAlertController(
+                        title: "로그인 실패",
+                        message: message,
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: "확인", style: .cancel))
+                    self.present(alert, animated: true)
+                }
+            )
+            .disposed(by: disposeBag)
     }
 
     func authorizationController(controller: ASAuthorizationController,

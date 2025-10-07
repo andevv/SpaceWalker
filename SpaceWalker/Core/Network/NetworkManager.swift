@@ -14,7 +14,7 @@ final class NetworkManager {
     private init() {}
 
     // MARK: - Base Configuration
-    private let baseURL = "https://example.spacewalker.com"
+    private let baseURL = Secrets.baseURL
 
     // MARK: - Request (실제 API용)
     func request<T: Decodable>(

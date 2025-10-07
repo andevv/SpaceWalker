@@ -11,20 +11,21 @@ final class UserSessionStore {
     static let shared = UserSessionStore()
     private init() {}
 
-    private let tokenKey = "access_token"
+    private let accessTokenKey = "access_token"
+    private let refreshTokenKey = "refresh_token"
 
     var accessToken: String? {
-        get { UserDefaults.standard.string(forKey: tokenKey) }
-        set {
-            if let value = newValue {
-                UserDefaults.standard.set(value, forKey: tokenKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: tokenKey)
-            }
-        }
+        get { UserDefaults.standard.string(forKey: accessTokenKey) }
+        set { UserDefaults.standard.setValue(newValue, forKey: accessTokenKey) }
+    }
+
+    var refreshToken: String? {
+        get { UserDefaults.standard.string(forKey: refreshTokenKey) }
+        set { UserDefaults.standard.setValue(newValue, forKey: refreshTokenKey) }
     }
 
     func clearSession() {
-        UserDefaults.standard.removeObject(forKey: tokenKey)
+        UserDefaults.standard.removeObject(forKey: accessTokenKey)
+        UserDefaults.standard.removeObject(forKey: refreshTokenKey)
     }
 }
