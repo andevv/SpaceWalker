@@ -46,3 +46,8 @@ struct MySpacesResponse: Decodable {
     let spaces: [MySpaceDTO]
     let total: Int
 }
+
+struct JoinedSpacesResponse: Decodable {
+    let spaces: [JoinedSpaceDTO]
+    let total: Int
+}

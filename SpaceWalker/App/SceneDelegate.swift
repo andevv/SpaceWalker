@@ -6,27 +6,63 @@
 //
 
 import UIKit
+import RxSwift
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
+    
+    private let disposeBag = DisposeBag()
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = (scene as? UIWindowScene) else { return }
         
         window = UIWindow(windowScene: windowScene)
-
+        
         // 로그인 여부 확인
-        if let token = UserSessionStore.shared.accessToken, !token.isEmpty {
-            print("로그인 상태 → MainTabBarController로 이동")
-            window?.rootViewController = MainTabBarController()
-        } else {
-            print("비로그인 상태 → SignUpViewController로 이동")
+        guard let token = UserSessionStore.shared.accessToken, !token.isEmpty else {
             window?.rootViewController = SignUpViewController()
+            window?.makeKeyAndVisible()
+            return
         }
-
-        window?.makeKeyAndVisible()
+        
+        // 로그인 상태 → 서버에서 내 Space 목록 조회
+        let repo = SpaceRepository()
+        repo.fetchMySpaces()
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] joinedSpaces in
+                guard let self = self else { return }
+                
+                if joinedSpaces.isEmpty {
+                    // Space 없음 → 선택 화면으로 이동
+                    self.setRoot(SpaceSelectViewController())
+                } else {
+                    // 이미 Space 존재 → 메인 캘린더로 이동
+                    let mainTab = MainTabBarController()
+                    mainTab.selectedIndex = 0
+                    self.setRoot(mainTab)
+                }
+            }, onFailure: { [weak self] _ in
+                // 실패 시 기본 SignUp 화면으로 복구
+                self?.setRoot(SignUpViewController())
+            })
+            .disposed(by: disposeBag)
     }
+    
+    private func setRoot(_ vc: UIViewController) {
+        guard let window else { return }
+        UIView.transition(
+            with: window,
+            duration: 0.4,
+            options: .transitionCrossDissolve,
+            animations: {
+                window.rootViewController = vc
+            },
+            completion: nil
+        )
+        window.makeKeyAndVisible()
+    }
+
 
     func sceneDidDisconnect(_ scene: UIScene) {
         // Called as the scene is being released by the system.
