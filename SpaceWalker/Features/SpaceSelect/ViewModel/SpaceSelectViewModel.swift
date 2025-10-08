@@ -62,7 +62,7 @@ final class SpaceSelectViewModel: BaseViewModel {
             .withLatestFrom(selectedSpacesRelay)
             .flatMapLatest { [repository] spaces -> Observable<Event<[JoinedSpace]>> in
                 let ids = spaces.map(\.id)
-                return repository.joinSpacesDummy(spaceIds: ids) //TODO: - 서버 API로 변경 필요
+                return repository.joinSpaces(spaceIds: ids)
                     .asObservable()
                     .materialize()
             }

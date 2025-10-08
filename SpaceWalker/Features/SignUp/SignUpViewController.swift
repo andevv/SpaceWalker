@@ -250,64 +250,62 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         print("userIdentifier:", userIdentifier)
         print("idToken (JWT):", idToken)
 
-        // 서버 요청
-        let repo = AppleLoginRepository()
-        repo.loginWithApple(idToken: idToken)
-            .observe(on: MainScheduler.instance)
-            .subscribe(
-                onSuccess: { response in
+        let loginRepo = AppleLoginRepository()
+            let spaceRepo = SpaceRepository()
+
+            // 순차 비동기 체인
+            loginRepo.loginWithApple(idToken: idToken)
+                .do(onSuccess: { response in
+                    // 토큰 저장
                     UserSessionStore.shared.accessToken = response.accessToken
                     UserSessionStore.shared.refreshToken = response.refreshToken
+                    print("서버 로그인 성공 — AccessToken 저장 완료")
+                })
+                .flatMap { _ in
+                    // 로그인 완료 후 → 스페이스 목록 요청
+                    print("[API] 내 스페이스 목록 요청 시작")
+                    return spaceRepo.fetchMySpaces()
+                }
+                .observe(on: MainScheduler.instance)
+                .subscribe(
+                    onSuccess: { joinedSpaces in
+                        print("[API] 내 스페이스 목록 응답 수신 — count: \(joinedSpaces.count)")
 
-                    print("서버 로그인 성공")
-                    print("AccessToken:", response.accessToken)
-                    print("RefreshToken:", response.refreshToken)
-                    
-                    // 로그인 성공 시 Root 교체 (CrossDissolve 애니메이션 포함)
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let delegate = scene.delegate as? SceneDelegate,
-                       let window = delegate.window {
+                        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                              let delegate = scene.delegate as? SceneDelegate,
+                              let window = delegate.window else { return }
 
-                        let newRoot = MainTabBarController()
+                        let nextVC: UIViewController
+                        if joinedSpaces.isEmpty {
+                            print("사용자가 속한 Space 없음 → SpaceSelectViewController로 이동")
+                            nextVC = SpaceSelectViewController()
+                        } else {
+                            print("사용자가 속한 Space 있음 → CalendarViewController로 이동")
+                            nextVC = CalendarViewController()
+                        }
 
                         UIView.transition(
                             with: window,
                             duration: 0.4,
                             options: .transitionCrossDissolve,
                             animations: {
-                                window.rootViewController = newRoot
+                                window.rootViewController = nextVC
                             },
                             completion: nil
                         )
+                    },
+                    onFailure: { error in
+                        print("로그인 or 스페이스 조회 실패:", error.localizedDescription)
+                        let alert = UIAlertController(
+                            title: "로그인 실패",
+                            message: error.localizedDescription,
+                            preferredStyle: .alert
+                        )
+                        alert.addAction(UIAlertAction(title: "확인", style: .cancel))
+                        self.present(alert, animated: true)
                     }
-
-                    #if DEBUG
-                    let alert = UIAlertController(
-                        title: "로그인 성공",
-                        message: "AccessToken 앞부분:\n\(response.accessToken)",
-                        preferredStyle: .alert
-                    )
-                    alert.addAction(UIAlertAction(title: "확인", style: .default))
-                    self.present(alert, animated: true)
-                    #endif
-                },
-                onFailure: { error in
-                    var message = "알 수 없는 오류가 발생했습니다."
-                    if case let AppleLoginError.invalidAuthCode(msg) = error {
-                        message = msg
-                    } else if case let AppleLoginError.unknown(msg) = error {
-                        message = msg
-                    }
-                    let alert = UIAlertController(
-                        title: "로그인 실패",
-                        message: message,
-                        preferredStyle: .alert
-                    )
-                    alert.addAction(UIAlertAction(title: "확인", style: .cancel))
-                    self.present(alert, animated: true)
-                }
-            )
-            .disposed(by: disposeBag)
+                )
+                .disposed(by: disposeBag)
     }
 
     func authorizationController(controller: ASAuthorizationController,

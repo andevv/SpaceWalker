@@ -7,12 +7,15 @@
 
 import UIKit
 import RxSwift
+import OSLog
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
     
     private let disposeBag = DisposeBag()
+    
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "", category: "SceneDelegate")
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = (scene as? UIWindowScene) else { return }
@@ -21,29 +24,36 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         // 로그인 여부 확인
         guard let token = UserSessionStore.shared.accessToken, !token.isEmpty else {
+            logger.info("로그인되지 않은 상태 — SignUpViewController 표시")
             window?.rootViewController = SignUpViewController()
             window?.makeKeyAndVisible()
             return
         }
         
-        // 로그인 상태 → 서버에서 내 Space 목록 조회
+        logger.info("로그인된 사용자 — accessToken 존재. 서버로 내 Space 목록 요청 시작")
+
         let repo = SpaceRepository()
         repo.fetchMySpaces()
             .observe(on: MainScheduler.instance)
+            .do(onSubscribe: { [weak self] in
+                self?.logger.debug("[API] GET /api/v1/space/my-space 요청 시작")
+            })
             .subscribe(onSuccess: { [weak self] joinedSpaces in
                 guard let self = self else { return }
-                
+
+                self.logger.info("[API] Space 목록 조회 성공 — count: \(joinedSpaces.count)")
+
                 if joinedSpaces.isEmpty {
-                    // Space 없음 → 선택 화면으로 이동
+                    self.logger.info("사용자가 속한 Space 없음 — SpaceSelectViewController로 이동")
                     self.setRoot(SpaceSelectViewController())
                 } else {
-                    // 이미 Space 존재 → 메인 캘린더로 이동
+                    self.logger.info("사용자가 \(joinedSpaces.count)개의 Space에 속해 있음 — Calendar로 이동")
                     let mainTab = MainTabBarController()
                     mainTab.selectedIndex = 0
                     self.setRoot(mainTab)
                 }
-            }, onFailure: { [weak self] _ in
-                // 실패 시 기본 SignUp 화면으로 복구
+            }, onFailure: { [weak self] error in
+                self?.logger.error("[API] Space 목록 조회 실패: \(error.localizedDescription)")
                 self?.setRoot(SignUpViewController())
             })
             .disposed(by: disposeBag)
@@ -56,6 +66,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             duration: 0.4,
             options: .transitionCrossDissolve,
             animations: {
+                self.logger.debug("RootViewController 전환: \(String(describing: type(of: vc)))")
                 window.rootViewController = vc
             },
             completion: nil
