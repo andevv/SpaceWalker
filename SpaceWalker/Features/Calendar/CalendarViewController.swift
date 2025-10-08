@@ -217,22 +217,24 @@ final class CalendarViewController: UIViewController {
         }
     }
 
-    // 서버(더미)에서 스페이스 목록을 받아와 칩 구성
+    // 서버에서 사용자가 속한 Space 목록을 불러와 칩 구성
     private func fetchMySpaces() {
-        repository.fetchMySpacesDummy() // JoinedSpace 배열
+        repository.fetchMySpaces() // 실제 API 호출
             .observe(on: MainScheduler.instance)
-            .subscribe(onSuccess: { [weak self] joined in
+            .subscribe(onSuccess: { [weak self] joinedSpaces in
                 guard let self else { return }
-                self.spaces = joined.map { $0.name }
+
+                // 서버 응답 → 칩에 표시할 Space 이름만 추출
+                self.spaces = joinedSpaces.map { $0.name }
                 self.selectedChipIndex = 0
                 self.setupChips()
 
-                // 칩 반영 후 썸네일 갱신
+                // 칩 반영 후 달력 갱신
                 self.makeDummyPhotos(for: self.calendar.currentPage)
                 self.calendar.reloadData()
+
             }, onFailure: { error in
                 print("MySpaces fetch failed:", error.localizedDescription)
-                // 실패시에도 기본 동작 유지를 위해 칩/달력 최소 갱신
             })
             .disposed(by: disposeBag)
     }
