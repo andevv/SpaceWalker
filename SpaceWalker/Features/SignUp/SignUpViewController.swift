@@ -281,7 +281,7 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
                             nextVC = SpaceSelectViewController()
                         } else {
                             print("사용자가 속한 Space 있음 → CalendarViewController로 이동")
-                            nextVC = CalendarViewController()
+                            nextVC = MainTabBarController()
                         }
 
                         UIView.transition(
