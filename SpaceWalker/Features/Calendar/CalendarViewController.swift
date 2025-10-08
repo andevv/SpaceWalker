@@ -14,6 +14,7 @@ import FSCalendar
 import RxSwift
 import ImageIO
 import UniformTypeIdentifiers
+import RealmSwift
 
 final class CalendarViewController: UIViewController {
 
@@ -663,6 +664,11 @@ extension CalendarViewController {
         }, completionHandler: { success, error in
             DispatchQueue.main.async {
                 if success {
+                    // Realm에 사진 메타데이터 저장
+                    let capturedAt = Date()
+                    let s3Key = "pending-" + UUID().uuidString // TODO: S3 업로드 후 실제 키로 업데이트
+                    self.persistPhotoMetadata(image: image, capturedAt: capturedAt, location: location, s3Key: s3Key)
+
                     let ac = UIAlertController(title: "저장 완료",
                                                message: location != nil ? "위치가 포함되었습니다." : "위치 없이 저장되었습니다.",
                                                preferredStyle: .alert)
@@ -723,6 +729,46 @@ extension CalendarViewController {
         guard CGImageDestinationFinalize(dest) else { return image.jpegData(compressionQuality: 0.95) }
         return mutableData as Data
     }
+    
+    /// Realm에 PhotoMetadata 저장
+    private func persistPhotoMetadata(image: UIImage, capturedAt: Date, location: CLLocation?, s3Key: String) {
+        // 픽셀 단위 해상도 계산
+        let pixelWidth = Int(image.size.width * image.scale)
+        let pixelHeight = Int(image.size.height * image.scale)
+
+        // 위치 좌표 (없으면 0으로 저장)
+        let lat = location?.coordinate.latitude ?? 0.0
+        let lon = location?.coordinate.longitude ?? 0.0
+
+        do {
+            let realm = try Realm()
+            let meta = PhotoMetadata()
+            meta.s3Key = s3Key
+            meta.capturedAt = capturedAt
+            meta.width = pixelWidth
+            meta.height = pixelHeight
+            meta.latitude = lat
+            meta.longitude = lon
+
+            try realm.write {
+                realm.add(meta)
+                if let url = realm.configuration.fileURL {
+                    #if targetEnvironment(simulator)
+                    // 시뮬레이터: 이 경로는 macOS에서 직접 접근 가능 (Finder에서 열 수 있음)
+                    print("Realm file (Finder accessible): \(url.path)")
+                    print("Open in Finder with: open \"\(url.deletingLastPathComponent().path)\"")
+                    #else
+                    // 실기기: macOS Finder에서 직접 접근 불가. Files 앱 또는 Xcode > Devices and Simulators에서 컨테이너 다운로드 필요
+                    print("Realm file (on iOS device): \(url.path)")
+                    print("Tip: In Xcode, Window > Devices and Simulators > select device > Installed Apps > SpaceWalker > Download Container…")
+                    #endif
+                }
+            }
+        } catch {
+            // 개발 중 로깅
+            print("Realm write failed: \(error.localizedDescription)")
+        }
+    }
 }
 
 // MARK: - CLLocationManagerDelegate
@@ -775,3 +821,4 @@ private extension CGImagePropertyOrientation {
         }
     }
 }
+

@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		FE9B89962E8BE5030012E889 /* FSCalendar in Frameworks */ = {isa = PBXBuildFile; productRef = FE9B89952E8BE5030012E889 /* FSCalendar */; };
+		FED4A4802E96C16900BD493B /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = FED4A47F2E96C16900BD493B /* RealmSwift */; };
+		FED4A4842E96C73100BD493B /* RealmSwift in Embed Frameworks */ = {isa = PBXBuildFile; productRef = FED4A47F2E96C16900BD493B /* RealmSwift */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		FED605282E88029200B216DD /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = FED605272E88029200B216DD /* .gitignore */; };
 		FED605382E88150400B216DD /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = FED605372E88150400B216DD /* README.md */; };
 		FEFC87412E8A7627007A3685 /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = FEFC87402E8A7627007A3685 /* Kingfisher */; };
@@ -16,6 +18,20 @@
 		FEFC874A2E8A7668007A3685 /* RxCocoa in Frameworks */ = {isa = PBXBuildFile; productRef = FEFC87492E8A7668007A3685 /* RxCocoa */; };
 		FEFC874C2E8A7668007A3685 /* RxSwift in Frameworks */ = {isa = PBXBuildFile; productRef = FEFC874B2E8A7668007A3685 /* RxSwift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		FED4A4852E96C73100BD493B /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				FED4A4842E96C73100BD493B /* RealmSwift in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		FED6050F2E88022000B216DD /* SpaceWalker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SpaceWalker.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -51,6 +67,7 @@
 			files = (
 				FEFC87472E8A7650007A3685 /* Alamofire in Frameworks */,
 				FEFC87412E8A7627007A3685 /* Kingfisher in Frameworks */,
+				FED4A4802E96C16900BD493B /* RealmSwift in Frameworks */,
 				FEFC874C2E8A7668007A3685 /* RxSwift in Frameworks */,
 				FEFC874A2E8A7668007A3685 /* RxCocoa in Frameworks */,
 				FE9B89962E8BE5030012E889 /* FSCalendar in Frameworks */,
@@ -89,6 +106,7 @@
 				FED6050B2E88022000B216DD /* Sources */,
 				FED6050C2E88022000B216DD /* Frameworks */,
 				FED6050D2E88022000B216DD /* Resources */,
+				FED4A4852E96C73100BD493B /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -105,6 +123,7 @@
 				FEFC87492E8A7668007A3685 /* RxCocoa */,
 				FEFC874B2E8A7668007A3685 /* RxSwift */,
 				FE9B89952E8BE5030012E889 /* FSCalendar */,
+				FED4A47F2E96C16900BD493B /* RealmSwift */,
 			);
 			productName = SpaceWalker;
 			productReference = FED6050F2E88022000B216DD /* SpaceWalker.app */;
@@ -140,6 +159,7 @@
 				FEFC87452E8A7650007A3685 /* XCRemoteSwiftPackageReference "Alamofire" */,
 				FEFC87482E8A7668007A3685 /* XCRemoteSwiftPackageReference "RxSwift" */,
 				FE9B89942E8BE5030012E889 /* XCRemoteSwiftPackageReference "FSCalendar" */,
+				FED4A47E2E96C16900BD493B /* XCRemoteSwiftPackageReference "realm-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FED605102E88022000B216DD /* Products */;
@@ -403,6 +423,14 @@
 				minimumVersion = 2.8.4;
 			};
 		};
+		FED4A47E2E96C16900BD493B /* XCRemoteSwiftPackageReference "realm-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/realm/realm-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 20.0.3;
+			};
+		};
 		FEFC873F2E8A7627007A3685 /* XCRemoteSwiftPackageReference "Kingfisher" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/onevcat/Kingfisher";
@@ -442,6 +470,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FE9B89942E8BE5030012E889 /* XCRemoteSwiftPackageReference "FSCalendar" */;
 			productName = FSCalendar;
+		};
+		FED4A47F2E96C16900BD493B /* RealmSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FED4A47E2E96C16900BD493B /* XCRemoteSwiftPackageReference "realm-swift" */;
+			productName = RealmSwift;
 		};
 		FEFC87402E8A7627007A3685 /* Kingfisher */ = {
 			isa = XCSwiftPackageProductDependency;
