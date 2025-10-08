@@ -85,6 +85,8 @@ final class CalendarViewController: UIViewController {
     // [Location+Save] 위치 권한/값
     private let locationManager = CLLocationManager()
     private var currentLocation: CLLocation?
+    private var pendingOneShotLocation: Bool = false
+    private var pendingCameraPresentation: Bool = false
 
     // MARK: - Networking
     private let repository = SpaceRepository()
@@ -97,7 +99,6 @@ final class CalendarViewController: UIViewController {
 
         setupLayout()
         setupCalendar()
-        setupLocationCapture()  // [Location+Save] 위치 설정
         refreshHeaderTitle()
 
         // 칩을 서버(더미)에서 받아와 구성
@@ -250,14 +251,6 @@ final class CalendarViewController: UIViewController {
         }
     }
 
-    // [Location+Save] 위치 권한 요청 & 업데이트 시작
-    private func setupLocationCapture() {
-        locationManager.delegate = self
-        locationManager.requestWhenInUseAuthorization()
-        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        locationManager.startUpdatingLocation()
-    }
-
     // MARK: - Actions
     @objc private func chipTapped(_ sender: UIButton) {
         selectedChipIndex = sender.tag
@@ -289,33 +282,99 @@ final class CalendarViewController: UIViewController {
     }
 
     // MARK: - Camera & Photo Library
+
     private func presentCamera() {
+        // 카메라 사용 가능 여부 확인
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            // 시뮬레이터 등 → 포토 라이브러리로 대체 (읽기 권한 필요)
-            requestPhotoReadPermission { [weak self] granted in
-                guard let self else { return }
-                DispatchQueue.main.async {
-                    granted ? self.presentPhotoLibrary() : self.showPhotoDeniedAlert()
-                }
-            }
+            let ac = UIAlertController(title: "카메라를 사용할 수 없습니다.",
+                                       message: "이 기기에서는 카메라를 사용할 수 없어요. 대신 사진 보관함에서 선택할까요?",
+                                       preferredStyle: .alert)
+            ac.addAction(UIAlertAction(title: "사진 선택", style: .default, handler: { [weak self] _ in
+                self?.presentPhotoLibrary()
+            }))
+            ac.addAction(UIAlertAction(title: "취소", style: .cancel))
+            present(ac, animated: true)
             return
         }
 
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        // 카메라 권한 확인 및 요청
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        switch status {
         case .authorized:
-            showCameraPicker()
+            self.showCameraPicker()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
-                    granted ? self?.showCameraPicker() : self?.showCameraDeniedAlert()
+                    guard let self else { return }
+                    if granted {
+                        self.showCameraPicker()
+                    } else {
+                        self.showCameraDeniedAlert()
+                    }
                 }
             }
         default:
-            showCameraDeniedAlert()
+            self.showCameraDeniedAlert()
         }
     }
 
+    // MARK: - Camera & Photo Library
+
+    /// 카메라 사용 시에만 1회 위치 요청
+    private func prepareLocationForCapture() {
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        switch locationManager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            pendingOneShotLocation = false
+            locationManager.requestLocation()
+        case .notDetermined:
+            pendingOneShotLocation = true
+            locationManager.requestWhenInUseAuthorization()
+        default:
+            // 거부/제한 상태에서는 위치 없이 저장 진행
+            break
+        }
+    }
+
+    // 위치 권한 거부/제한 안내 알림 (카메라는 계속 진행 가능)
+    private func showLocationDeniedAlert(continueHandler: @escaping () -> Void) {
+        let ac = UIAlertController(title: "위치 접근 권한 안내",
+                                   message: "촬영한 사진에 위치 정보를 포함하려면 설정에서 위치 접근을 허용해 주세요. 지금은 위치 없이 계속할 수 있어요.",
+                                   preferredStyle: .alert)
+        ac.addAction(UIAlertAction(title: "위치 없이 계속", style: .default, handler: { _ in
+            continueHandler()
+        }))
+        ac.addAction(UIAlertAction(title: "설정 열기", style: .default, handler: { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        }))
+        ac.addAction(UIAlertAction(title: "취소", style: .cancel))
+        present(ac, animated: true)
+    }
+
     private func showCameraPicker() {
+        let locStatus = locationManager.authorizationStatus
+        switch locStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            // 이미 권한 허용 → 위치 1회 요청 후 즉시 카메라 표시
+            prepareLocationForCapture()
+            presentSystemCameraPicker()
+        case .notDetermined:
+            // 권한 결과를 기다렸다가 카메라 표시
+            pendingCameraPresentation = true
+            prepareLocationForCapture() // 내부에서 requestWhenInUseAuthorization()
+            // 카메라는 locationManagerDidChangeAuthorization에서 표시됨
+        default:
+            // 거부/제한 상태 → 안내 알림 후 사용자가 계속을 선택하면 카메라 표시
+            showLocationDeniedAlert { [weak self] in
+                self?.presentSystemCameraPicker()
+            }
+        }
+    }
+
+    private func presentSystemCameraPicker() {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.cameraCaptureMode = .photo
@@ -624,18 +683,32 @@ extension CalendarViewController: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
-            manager.startUpdatingLocation()
+            if pendingOneShotLocation {
+                pendingOneShotLocation = false
+                manager.requestLocation()
+            }
+            if pendingCameraPresentation {
+                pendingCameraPresentation = false
+                presentSystemCameraPicker()
+            }
+        case .denied, .restricted:
+            if pendingCameraPresentation {
+                pendingCameraPresentation = false
+                showLocationDeniedAlert { [weak self] in
+                    self?.presentSystemCameraPicker()
+                }
+            }
         default:
-            manager.stopUpdatingLocation()
+            break
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         currentLocation = locations.last
-        // manager.stopUpdatingLocation()
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("Location error: \(error.localizedDescription)")
     }
 }
+
