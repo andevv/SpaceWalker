@@ -12,6 +12,8 @@ import CoreLocation
 import SnapKit
 import FSCalendar
 import RxSwift
+import ImageIO
+import UniformTypeIdentifiers
 
 final class CalendarViewController: UIViewController {
 
@@ -622,6 +624,7 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
 
         // 카메라 촬영/포토 라이브러리 선택 공통
         let image = info[.originalImage] as? UIImage
+        let metadata = info[.mediaMetadata] as? [String: Any]
         picker.dismiss(animated: true) { [weak self] in
             guard let self, let image else { return }
 
@@ -631,7 +634,7 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
                     DispatchQueue.main.async { self.showPhotoDeniedAlert() }
                     return
                 }
-                self.savePhotoWithLocation(image)   // [Location+Save] 위치 포함 저장
+                self.savePhotoWithLocation(image, metadata: metadata)   // [Location+Save] 위치 + 메타데이터 포함 저장
             }
         }
     }
@@ -645,9 +648,9 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
 extension CalendarViewController {
 
     /// 현재 위치가 있으면 위치 메타데이터와 함께 저장, 없으면 위치 없이 저장
-    private func savePhotoWithLocation(_ image: UIImage) {
-        let jpegData = image.jpegData(compressionQuality: 0.95)
-        guard let data = jpegData else { return }
+    private func savePhotoWithLocation(_ image: UIImage, metadata: [String: Any]?) {
+        // JPEG 데이터 생성 (EXIF/TIFF 메타데이터 삽입)
+        guard let data = jpegData(with: image, metadata: metadata) else { return }
 
         let location = currentLocation // 캡처
 
@@ -656,7 +659,7 @@ extension CalendarViewController {
             let options = PHAssetResourceCreationOptions()
             req.addResource(with: .photo, data: data, options: options)
             req.creationDate = Date()
-            if let location { req.location = location }    // 위치 메타데이터 포함
+            if let location { req.location = location }    // 위치 메타데이터 포함 (PHAsset)
         }, completionHandler: { success, error in
             DispatchQueue.main.async {
                 if success {
@@ -674,6 +677,51 @@ extension CalendarViewController {
                 }
             }
         })
+    }
+
+    /// 이미지에 EXIF/TIFF 메타데이터를 삽입하여 JPEG Data 생성
+    private func jpegData(with image: UIImage, metadata: [String: Any]?) -> Data? {
+        var meta = metadata ?? [:]
+
+        // TIFF 기본값 보완 (제조사/모델)
+        var tiff = (meta[kCGImagePropertyTIFFDictionary as String] as? [String: Any]) ?? [:]
+        if tiff[kCGImagePropertyTIFFMake as String] == nil { tiff[kCGImagePropertyTIFFMake as String] = "Apple" }
+        if tiff[kCGImagePropertyTIFFModel as String] == nil { tiff[kCGImagePropertyTIFFModel as String] = UIDevice.current.model }
+        meta[kCGImagePropertyTIFFDictionary as String] = tiff
+
+        // EXIF 기본값 보완 (렌즈 정보 등)
+        var exif = (meta[kCGImagePropertyExifDictionary as String] as? [String: Any]) ?? [:]
+        if exif[kCGImagePropertyExifLensMake as String] == nil { exif[kCGImagePropertyExifLensMake as String] = "Apple" }
+        if exif[kCGImagePropertyExifLensModel as String] == nil { exif[kCGImagePropertyExifLensModel as String] = "Built-in Lens" }
+        meta[kCGImagePropertyExifDictionary as String] = exif
+
+        // Orientation 보존
+        let cgOrientation = CGImagePropertyOrientation(image.imageOrientation)
+        meta[kCGImagePropertyOrientation as String] = cgOrientation.rawValue
+
+        // CGImage 확보
+        var cgImage: CGImage?
+        if let base = image.cgImage {
+            cgImage = base
+        } else {
+            // CIImage 기반이거나 CGImage가 없는 경우 렌더링해서 생성
+            let format = UIGraphicsImageRendererFormat.default()
+            format.scale = image.scale
+            let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+            let rendered = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: image.size))
+            }
+            cgImage = rendered.cgImage
+        }
+        guard let cgImage else { return image.jpegData(compressionQuality: 0.95) }
+
+        let mutableData = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(mutableData, UTType.jpeg.identifier as CFString, 1, nil) else {
+            return image.jpegData(compressionQuality: 0.95)
+        }
+        CGImageDestinationAddImage(dest, cgImage, meta as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return image.jpegData(compressionQuality: 0.95) }
+        return mutableData as Data
     }
 }
 
@@ -712,3 +760,18 @@ extension CalendarViewController: CLLocationManagerDelegate {
     }
 }
 
+private extension CGImagePropertyOrientation {
+    init(_ ui: UIImage.Orientation) {
+        switch ui {
+        case .up: self = .up
+        case .down: self = .down
+        case .left: self = .left
+        case .right: self = .right
+        case .upMirrored: self = .upMirrored
+        case .downMirrored: self = .downMirrored
+        case .leftMirrored: self = .leftMirrored
+        case .rightMirrored: self = .rightMirrored
+        @unknown default: self = .up
+        }
+    }
+}
