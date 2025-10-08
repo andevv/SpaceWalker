@@ -8,13 +8,70 @@
 import Foundation
 import Alamofire
 import RxSwift
+import OSLog
 
 final class NetworkManager {
     static let shared = NetworkManager()
     private init() {}
 
+    // Unified logging
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpaceWalker", category: "NetworkManager")
+
     // MARK: - Base Configuration
     private let baseURL = Secrets.baseURL
+
+    // UI routing hook set by SceneDelegate/AppRouter
+    var onRequireReauthentication: (() -> Void)?
+
+    /// Refresh access token using stored refresh token
+    private func refreshAccessToken() -> Single<Bool> {
+        guard let refreshToken = UserSessionStore.shared.refreshToken else {
+            logger.warning("[Auth] No refresh token available. Skipping refresh.")
+            return .just(false)
+        }
+
+        return Single.create { single in
+            self.logger.info("[Auth] Start token refresh -> POST /api/v1/user/refresh")
+            let url = self.baseURL + "/api/v1/user/refresh"
+            let params: [String: Any] = ["refreshToken": refreshToken]
+            let headers: HTTPHeaders = ["Content-Type": "application/json"]
+
+            let req = AF.request(
+                url,
+                method: .post,
+                parameters: params,
+                encoding: JSONEncoding.default,
+                headers: headers
+            ).responseData { response in
+                let status = response.response?.statusCode ?? -1
+                self.logger.debug("[Auth] Refresh response status: \(status)")
+                switch response.result {
+                case .success(let data):
+                    if status == 200 {
+                        self.logger.info("[Auth] Token refresh succeeded (200)")
+                        if let refreshed = try? JSONDecoder().decode(RefreshResponse.self, from: data) {
+                            UserSessionStore.shared.accessToken = refreshed.accessToken
+                            UserSessionStore.shared.refreshToken = refreshed.refreshToken
+                            single(.success(true))
+                        } else {
+                            self.logger.error("[Auth] Failed to decode refresh response")
+                            single(.success(false))
+                        }
+                    } else if status == 401 {
+                        self.logger.warning("[Auth] Refresh rejected with 401. Tokens expired or invalid.")
+                        single(.success(false)) // explicit expired
+                    } else {
+                        self.logger.error("[Auth] Refresh failed with status: \(status)")
+                        single(.success(false))
+                    }
+                case .failure:
+                    self.logger.error("[Auth] Network error during refresh: \(response.error?.localizedDescription ?? "unknown error")")
+                    single(.success(false))
+                }
+            }
+            return Disposables.create { req.cancel() }
+        }
+    }
 
     // MARK: - Request (실제 API용)
     func request<T: Decodable>(
@@ -25,35 +82,78 @@ final class NetworkManager {
     ) -> Single<T> {
 
         return Single.create { single in
-            let url = self.baseURL + endpoint
+            self.logger.debug("[Request] Start \(method.rawValue) \(endpoint) auth=\(requiresAuth) params=\(parameters != nil)")
 
-            var headers: HTTPHeaders = [
-                "Content-Type": "application/json"
-            ]
+            var refreshDisposable: Disposable? = nil
 
-            if requiresAuth, let token = UserSessionStore.shared.accessToken {
-                headers.add(name: "Authorization", value: "Bearer \(token)")
+            let performRequest: () -> DataRequest = { [baseURL = self.baseURL] in
+                let url = baseURL + endpoint
+                var headers: HTTPHeaders = ["Content-Type": "application/json"]
+                if requiresAuth, let token = UserSessionStore.shared.accessToken {
+                    headers.add(name: "Authorization", value: "Bearer \(token)")
+                }
+                let req = AF.request(
+                    url,
+                    method: method,
+                    parameters: parameters,
+                    encoding: method == .get ? URLEncoding.default : JSONEncoding.default,
+                    headers: headers
+                )
+                self.logger.debug("[Request] Performing: \(method.rawValue) \(url), headersAuth=\(requiresAuth && UserSessionStore.shared.accessToken != nil)")
+                return req
             }
 
-            let request = AF.request(
-                url,
-                method: method,
-                parameters: parameters,
-                encoding: method == .get ? URLEncoding.default : JSONEncoding.default,
-                headers: headers
-            )
-            .validate()
-            .responseDecodable(of: T.self) { response in
+            var currentRequest: DataRequest? = nil
+
+            var handleResponse: ((AFDataResponse<T>, Bool) -> Void)!
+            handleResponse = { [weak self] response, didRetry in
+                guard let self = self else { return }
+                let status = response.response?.statusCode ?? -1
+                self.logger.debug("[Response] \(method.rawValue) \(endpoint) status=\(status) didRetry=\(didRetry)")
                 switch response.result {
                 case .success(let result):
+                    self.logger.info("[Response] Success for \(endpoint) didRetry=\(didRetry)")
                     single(.success(result))
                 case .failure(let error):
-                    print("[NetworkManager] \(endpoint) 실패:", error.localizedDescription)
-                    single(.failure(error))
+                    self.logger.error("[Response] Failure for \(endpoint): \(error.localizedDescription)")
+                    if status == 401, requiresAuth, !didRetry {
+                        self.logger.notice("[Auth] 401 received for \(endpoint). Attempting token refresh...")
+                        refreshDisposable = self.refreshAccessToken()
+                            .subscribe(onSuccess: { [weak self] ok in
+                                guard let self = self else { return }
+                                self.logger.debug("[Auth] Refresh result ok=\(ok)")
+                                if ok {
+                                    self.logger.info("[Auth] Refresh succeeded. Retrying request: \(method.rawValue) \(endpoint)")
+                                    let retryReq = performRequest()
+                                    currentRequest = retryReq
+                                    retryReq.validate().responseDecodable(of: T.self) { retryRes in
+                                        handleResponse(retryRes, true)
+                                    }
+                                } else {
+                                    self.logger.warning("[Auth] Refresh failed. Reauthentication required.")
+                                    self.onRequireReauthentication?()
+                                    single(.failure(error))
+                                }
+                            }, onFailure: { [weak self] _ in
+                                self?.logger.error("[Auth] Refresh request errored. Reauthentication required.")
+                                self?.onRequireReauthentication?()
+                                single(.failure(error))
+                            })
+                    } else {
+                        self.logger.error("[Response] Non-retriable failure for \(endpoint): \(error.localizedDescription)")
+                        single(.failure(error))
+                    }
                 }
             }
 
-            return Disposables.create { request.cancel() }
+            let initial = performRequest()
+            currentRequest = initial
+            self.logger.debug("[Request] Initial request fired: \(method.rawValue) \(endpoint)")
+            initial.validate().responseDecodable(of: T.self) { response in
+                handleResponse(response, false)
+            }
+
+            return Disposables.create { currentRequest?.cancel(); refreshDisposable?.dispose() }
         }
     }
 
@@ -65,30 +165,101 @@ final class NetworkManager {
         requiresAuth: Bool
     ) -> Single<Data> {
         return Single.create { single in
-            var headers: HTTPHeaders = ["Content-Type": "application/json"]
-            if requiresAuth, let token = UserSessionStore.shared.accessToken {
-                headers.add(name: "Authorization", value: "Bearer \(token)")
+            self.logger.debug("[RequestRaw] Start \(method.rawValue) \(path) auth=\(requiresAuth) params=\(parameters != nil)")
+            let performRequest: () -> DataRequest = { [baseURL = self.baseURL] in
+                var headers: HTTPHeaders = ["Content-Type": "application/json"]
+                if requiresAuth, let token = UserSessionStore.shared.accessToken {
+                    headers.add(name: "Authorization", value: "Bearer \(token)")
+                }
+                let req = AF.request(
+                    baseURL + path,
+                    method: method,
+                    parameters: parameters,
+                    encoding: JSONEncoding.default,
+                    headers: headers
+                )
+                self.logger.debug("[RequestRaw] Performing: \(method.rawValue) \(baseURL + path), headersAuth=\(requiresAuth && UserSessionStore.shared.accessToken != nil)")
+                return req
             }
 
-            let req = AF.request(
-                self.baseURL + path,
-                method: method,
-                parameters: parameters,
-                encoding: JSONEncoding.default,
-                headers: headers
-            )
-            .validate(statusCode: 200..<600)
-            .responseData { res in
+            var currentRequest: DataRequest? = nil
+            var refreshDisposable: Disposable? = nil
+
+            var handleResponse: ((AFDataResponse<Data>, Bool) -> Void)!
+            handleResponse = { [weak self] res, didRetry in
+                guard let self = self else { return }
+                let status = res.response?.statusCode ?? -1
+                self.logger.debug("[ResponseRaw] \(method.rawValue) \(path) status=\(status) didRetry=\(didRetry)")
                 switch res.result {
                 case .success(let data):
-                    single(.success(data))
+                    if status == 401, requiresAuth, !didRetry {
+                        self.logger.notice("[Auth] 401 received for raw request \(path). Attempting token refresh...")
+                        refreshDisposable = self.refreshAccessToken()
+                            .subscribe(onSuccess: { [weak self] ok in
+                                guard let self = self else { return }
+                                self.logger.debug("[Auth] Refresh result ok=\(ok)")
+                                if ok {
+                                    self.logger.info("[Auth] Refresh succeeded. Retrying raw request: \(method.rawValue) \(path)")
+                                    let retryReq = performRequest()
+                                    currentRequest = retryReq
+                                    retryReq.validate(statusCode: 200..<600).responseData { retryRes in
+                                        handleResponse(retryRes, true)
+                                    }
+                                } else {
+                                    self.logger.warning("[Auth] Refresh failed. Reauthentication required (raw request). Returning original data.")
+                                    self.onRequireReauthentication?()
+                                    single(.success(data))
+                                }
+                            }, onFailure: { [weak self] _ in
+                                self?.logger.error("[Auth] Refresh request errored (raw). Reauthentication required. Returning original data if available.")
+                                self?.onRequireReauthentication?()
+                                single(.success(res.data ?? Data()))
+                            })
+                    } else {
+                        single(.success(data))
+                    }
                 case .failure(let err):
-                    if let data = res.data { single(.success(data)) }
-                    else { single(.failure(err)) }
+                    if status == 401, requiresAuth, !didRetry {
+                        self.logger.notice("[Auth] 401 failure for raw request \(path). Attempting token refresh...")
+                        refreshDisposable = self.refreshAccessToken()
+                            .subscribe(onSuccess: { [weak self] ok in
+                                guard let self = self else { return }
+                                self.logger.debug("[Auth] Refresh result ok=\(ok)")
+                                if ok {
+                                    self.logger.info("[Auth] Refresh succeeded. Retrying raw request after failure: \(method.rawValue) \(path)")
+                                    let retryReq = performRequest()
+                                    currentRequest = retryReq
+                                    retryReq.validate(statusCode: 200..<600).responseData { retryRes in
+                                        handleResponse(retryRes, true)
+                                    }
+                                } else {
+                                    self.logger.warning("[Auth] Refresh failed (raw failure). Reauthentication required.")
+                                    self.onRequireReauthentication?()
+                                    if let data = res.data { single(.success(data)) }
+                                    else { single(.failure(err)) }
+                                }
+                            }, onFailure: { [weak self] _ in
+                                self?.logger.error("[Auth] Refresh request errored (raw failure). Reauthentication required.")
+                                self?.onRequireReauthentication?()
+                                if let data = res.data { single(.success(data)) }
+                                else { single(.failure(err)) }
+                            })
+                    } else {
+                        self.logger.error("[ResponseRaw] Failure for \(path): \(err.localizedDescription)")
+                        if let data = res.data { single(.success(data)) }
+                        else { single(.failure(err)) }
+                    }
                 }
             }
 
-            return Disposables.create { req.cancel() }
+            let initial = performRequest()
+            currentRequest = initial
+            self.logger.debug("[RequestRaw] Initial request fired: \(method.rawValue) \(path)")
+            initial.validate(statusCode: 200..<600).responseData { res in
+                handleResponse(res, false)
+            }
+
+            return Disposables.create { currentRequest?.cancel(); refreshDisposable?.dispose() }
         }
     }
 }
@@ -234,3 +405,4 @@ extension NetworkManager {
         }
     }
 }
+

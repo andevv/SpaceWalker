@@ -22,6 +22,15 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         window = UIWindow(windowScene: windowScene)
         
+        // 재인증(로그아웃 후 재로그인) 필요 시 실행될 콜백 등록
+        NetworkManager.shared.onRequireReauthentication = { [weak self] in
+            DispatchQueue.main.async {
+                UserSessionStore.shared.clearSession()
+                let signUpVC = SignUpViewController()
+                self?.setRoot(signUpVC)
+            }
+        }
+        
         // 로그인 여부 확인
         guard let token = UserSessionStore.shared.accessToken, !token.isEmpty else {
             logger.info("로그인되지 않은 상태 — SignUpViewController 표시")
