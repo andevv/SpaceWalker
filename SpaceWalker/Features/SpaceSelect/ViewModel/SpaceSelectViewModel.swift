@@ -33,8 +33,7 @@ final class SpaceSelectViewModel: BaseViewModel {
     func transform(input: Input) -> Output {
         input.viewWillAppear
             .flatMapLatest { [repository] _ in
-                //repository.fetchSpaces()
-                repository.fetchDummySpaces() //TODO: - 서버 API로 변경 필요
+                repository.fetchSpaces()
                     .asObservable()
                     .catchAndReturn([]) // 실패 시 빈 배열
             }
