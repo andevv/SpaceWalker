@@ -10,6 +10,23 @@ import RxSwift
 import Alamofire
 
 final class SpaceRepository {
+    
+    // MARK: - 사용자의 특정 Space 상태 상세조회
+    func fetchSpaceActivities(spaceId: Int, year: Int, month: Int, timezone: String) -> Single<SpaceActivityResponse> {
+        let endpoint = "/api/v1/space/\(spaceId)/activities"
+        let params: [String: Any] = [
+            "year": year,
+            "month": month,
+            "timezone": timezone
+        ]
+
+        return NetworkManager.shared.request(
+            endpoint,
+            method: .get,
+            parameters: params,
+            requiresAuth: true
+        )
+    }
 
     // MARK: - ISO8601 Date Parsing (supports fractional seconds)
     private static let iso8601WithFractional: ISO8601DateFormatter = {

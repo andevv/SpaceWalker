@@ -15,8 +15,10 @@ import RxSwift
 import ImageIO
 import UniformTypeIdentifiers
 import RealmSwift
+import os
 
 final class CalendarViewController: UIViewController {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpaceWalker", category: "CalendarViewController")
 
     // MARK: - UI
     private let titleLabel: UILabel = {
@@ -77,6 +79,7 @@ final class CalendarViewController: UIViewController {
     }()
 
     // MARK: - State
+    private var joinedSpaces: [JoinedSpace] = []
     private var spaces: [String] = []
     private var selectedChipIndex: Int = 0
     private var selectedDate: Date?
@@ -220,13 +223,69 @@ final class CalendarViewController: UIViewController {
             label.font = .systemFont(ofSize: 13, weight: .semibold)
         }
     }
+    
+    // 사용자의 특정 space 상태 상세 조회
+    private func fetchSpaceActivities(spaceId: Int) {
+        let requestStart = Date()
+        logger.info("[Network] fetchSpaceActivities start — spaceId=\(spaceId, privacy: .public)")
+
+        let year = cal.component(.year, from: Date())
+        let month = cal.component(.month, from: Date())
+        let timezone = TimeZone.current.identifier
+
+        repository.fetchSpaceActivities(spaceId: spaceId, year: year, month: month, timezone: timezone)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] response in
+                guard let self else { return }
+
+                let elapsed = Date().timeIntervalSince(requestStart)
+                self.logger.info("[Network] fetchSpaceActivities success — elapsed=\(elapsed, format: .fixed(precision: 2))s, dailyMission=\(response.dailyMission.title, privacy: .public), activitiesCount=\(response.activities.count, privacy: .public)")
+
+                // 오늘의 미션
+                self.missionLabel.text = response.dailyMission.title
+
+                // 활동 날짜별 썸네일 맵핑
+                var photoMap: [Date: UIImage] = [:]
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+                for activity in response.activities {
+                    if let utcDate = formatter.date(from: activity.date) {
+                        let localDate = utcDate.convertToLocal()
+                        if let url = URL(string: activity.photo),
+                           let data = try? Data(contentsOf: url),
+                           let image = UIImage(data: data) {
+                            photoMap[localDate] = image
+                        }
+                    }
+                }
+
+                self.photos = photoMap
+                self.calendar.reloadData()
+
+            }, onFailure: { error in
+                let elapsed = Date().timeIntervalSince(requestStart)
+                self.logger.error("[Network] fetchSpaceActivities failure — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(error.localizedDescription, privacy: .public)")
+
+                print("Space activities fetch failed:", error.localizedDescription)
+            })
+            .disposed(by: disposeBag)
+    }
 
     // 서버에서 사용자가 속한 Space 목록을 불러와 칩 구성
     private func fetchMySpaces() {
+        let requestStart = Date()
+        logger.info("[Network] fetchMySpaces start")
+
         repository.fetchMySpaces() // 실제 API 호출
             .observe(on: MainScheduler.instance)
             .subscribe(onSuccess: { [weak self] joinedSpaces in
                 guard let self else { return }
+                
+                self.joinedSpaces = joinedSpaces
+
+                let elapsed = Date().timeIntervalSince(requestStart)
+                self.logger.info("[Network] fetchMySpaces success — elapsed=\(elapsed, format: .fixed(precision: 2))s, count=\(joinedSpaces.count, privacy: .public)")
 
                 // 서버 응답 → 칩에 표시할 Space 이름만 추출
                 self.spaces = joinedSpaces.map { $0.name }
@@ -234,10 +293,18 @@ final class CalendarViewController: UIViewController {
                 self.setupChips()
 
                 // 칩 반영 후 달력 갱신
-                self.makeDummyPhotos(for: self.calendar.currentPage)
-                self.calendar.reloadData()
+//                self.makeDummyPhotos(for: self.calendar.currentPage)
+//                self.calendar.reloadData()
+                
+                // 첫 번째 Space의 활동 조회
+                if let firstSpace = joinedSpaces.first {
+                    self.fetchSpaceActivities(spaceId: firstSpace.id)
+                }
 
             }, onFailure: { error in
+                let elapsed = Date().timeIntervalSince(requestStart)
+                self.logger.error("[Network] fetchMySpaces failure — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(error.localizedDescription, privacy: .public)")
+
                 print("MySpaces fetch failed:", error.localizedDescription)
             })
             .disposed(by: disposeBag)
@@ -260,8 +327,11 @@ final class CalendarViewController: UIViewController {
         for case let btn as UIButton in chipStack.arrangedSubviews {
             styleChip(btn, selected: btn.tag == selectedChipIndex)
         }
-        makeDummyPhotos(for: calendar.currentPage)
-        calendar.reloadData()
+        if joinedSpaces.indices.contains(selectedChipIndex) {
+            let selected = joinedSpaces[selectedChipIndex]
+            logger.info("[UI] chipTapped — index=\(self.selectedChipIndex, privacy: .public), spaceId=\(selected.id, privacy: .public), name=\(selected.name, privacy: .public)")
+            fetchSpaceActivities(spaceId: selected.id)
+        }
     }
 
     @objc private func prevMonth() {
