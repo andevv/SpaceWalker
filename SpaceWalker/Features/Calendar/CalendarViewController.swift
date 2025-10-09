@@ -905,7 +905,7 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
                     let spaceId = self.joinedSpaces[self.selectedChipIndex].id
                     let missionTitle = self.missionLabel.text ?? "오늘의 미션"
                     // Encode a fresh image without embedded metadata (GPS removed) for upload
-                    if let encoded = self.encodeImageForUpload(image) {
+                    if let encoded = self.encodeImageForUpload(image, originalMetadata: metadata) {
                         self.startMissionSubmissionTransaction(spaceId: spaceId, image: image, imageData: encoded.data, mimeType: encoded.mimeType, missionTitle: missionTitle)
                     } else {
                         self.showAlert(title: "업로드 준비 실패", message: "이미지를 인코딩하지 못했습니다.")
@@ -1180,20 +1180,91 @@ private extension CGImagePropertyOrientation {
 // MARK: - Mission Submission (Presigned URL -> S3 PUT -> Submit)
 extension CalendarViewController {
 
-    private func encodeImageForUpload(_ image: UIImage) -> (data: Data, mimeType: String)? {
-        // Try HEIC first (best for iOS)
-        if let heic = heicData(from: image, quality: 0.9) {
+    private func encodeImageForUpload(_ image: UIImage, originalMetadata: [String: Any]?) -> (data: Data, mimeType: String)? {
+        // Build sanitized metadata: preserve non-sensitive fields and orientation, strip GPS and personal info
+        let sanitized = sanitizedMetadata(for: image, original: originalMetadata)
+
+        // Prefer HEIC with metadata
+        if let heic = dataWithMetadata(image: image, uti: UTType.heic, quality: 0.9, metadata: sanitized) {
             return (heic, "image/heic")
         }
-        // Fallback to high-quality JPEG
-        if let jpeg = image.jpegData(compressionQuality: 0.9) {
+        // Fallback to JPEG with metadata
+        if let jpeg = dataWithMetadata(image: image, uti: UTType.jpeg, quality: 0.9, metadata: sanitized) {
             return (jpeg, "image/jpeg")
         }
-        // Last resort: PNG
+        // Last resort: PNG (metadata generally ignored)
         if let png = image.pngData() {
             return (png, "image/png")
         }
         return nil
+    }
+
+    /// Create image data of given UTI embedding provided metadata and compression quality (if applicable)
+    private func dataWithMetadata(image: UIImage, uti: UTType, quality: CGFloat, metadata: [String: Any]) -> Data? {
+        // Ensure we have a CGImage. If not, render one from UIImage.
+        var cgImage: CGImage? = image.cgImage
+        if cgImage == nil {
+            let format = UIGraphicsImageRendererFormat.default()
+            format.scale = image.scale
+            let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+            let rendered = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: image.size)) }
+            cgImage = rendered.cgImage
+        }
+        guard let cgImage else { return nil }
+
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, uti.identifier as CFString, 1, nil) else { return nil }
+
+        // Merge compression quality and provided metadata
+        var props = metadata
+        props[kCGImageDestinationLossyCompressionQuality as String] = quality
+
+        CGImageDestinationAddImage(dest, cgImage, props as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return out as Data
+    }
+
+    /// Build sanitized metadata by merging original and defaults, removing sensitive info, and setting correct orientation
+    private func sanitizedMetadata(for image: UIImage, original: [String: Any]?) -> [String: Any] {
+        var meta = original ?? [:]
+
+        // Remove GPS entirely
+        meta.removeValue(forKey: kCGImagePropertyGPSDictionary as String)
+        // Remove IPTC if present (can include identifying info)
+        meta.removeValue(forKey: kCGImagePropertyIPTCDictionary as String)
+
+        // Clean EXIF sensitive fields
+        var exif = (meta[kCGImagePropertyExifDictionary as String] as? [String: Any]) ?? [:]
+        let exifSensitiveKeys: [CFString] = [
+            kCGImagePropertyExifUserComment,
+            kCGImagePropertyExifCameraOwnerName,
+            kCGImagePropertyExifBodySerialNumber,
+            kCGImagePropertyExifLensSerialNumber,
+            kCGImagePropertyExifMakerNote
+        ]
+        for key in exifSensitiveKeys { exif.removeValue(forKey: key as String) }
+        // Keep benign defaults
+        if exif[kCGImagePropertyExifLensMake as String] == nil { exif[kCGImagePropertyExifLensMake as String] = "Apple" }
+        if exif[kCGImagePropertyExifLensModel as String] == nil { exif[kCGImagePropertyExifLensModel as String] = "Built-in Lens" }
+        meta[kCGImagePropertyExifDictionary as String] = exif
+
+        // Clean TIFF sensitive fields
+        var tiff = (meta[kCGImagePropertyTIFFDictionary as String] as? [String: Any]) ?? [:]
+        let tiffSensitiveKeys: [CFString] = [
+            kCGImagePropertyTIFFArtist,
+            kCGImagePropertyTIFFCopyright,
+            kCGImagePropertyTIFFSoftware
+        ]
+        for key in tiffSensitiveKeys { tiff.removeValue(forKey: key as String) }
+        if tiff[kCGImagePropertyTIFFMake as String] == nil { tiff[kCGImagePropertyTIFFMake as String] = "Apple" }
+        if tiff[kCGImagePropertyTIFFModel as String] == nil { tiff[kCGImagePropertyTIFFModel as String] = UIDevice.current.model }
+        meta[kCGImagePropertyTIFFDictionary as String] = tiff
+
+        // Always set Orientation from UIImage to ensure correct display if reader honors EXIF
+        let cgOrientation = CGImagePropertyOrientation(image.imageOrientation)
+        meta[kCGImagePropertyOrientation as String] = cgOrientation.rawValue
+
+        return meta
     }
 
     private func heicData(from image: UIImage, quality: CGFloat) -> Data? {
