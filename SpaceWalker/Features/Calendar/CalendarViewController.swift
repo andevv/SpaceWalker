@@ -1295,6 +1295,12 @@ extension CalendarViewController {
 
                 self.isSubmittingMission = false
                 self.showAlert(title: "미션 제출 완료", message: "사진 업로드와 제출이 완료되었습니다.")
+                
+                // Refresh calendar by fetching latest activities for the current page/space
+                if self.joinedSpaces.indices.contains(self.selectedChipIndex) {
+                    let selected = self.joinedSpaces[self.selectedChipIndex]
+                    self.fetchSpaceActivities(spaceId: selected.id)
+                }
             }, onFailure: { [weak self] err in
                 guard let self = self else { return }
                 let elapsed = Date().timeIntervalSince(requestStart)
