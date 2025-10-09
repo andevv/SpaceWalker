@@ -83,6 +83,7 @@ final class CalendarViewController: UIViewController {
     private var spaces: [String] = []
     private var selectedChipIndex: Int = 0
     private var selectedDate: Date?
+    private var currentFetchKey: String?
 
     /// 현재 페이지(월)의 날짜별 썸네일
     private var photos: [Date: UIImage] = [:]
@@ -229,9 +230,15 @@ final class CalendarViewController: UIViewController {
         let requestStart = Date()
         logger.info("[Network] fetchSpaceActivities start — spaceId=\(spaceId, privacy: .public)")
 
-        let year = cal.component(.year, from: Date())
-        let month = cal.component(.month, from: Date())
+        let visiblePage = calendar.currentPage
+        let year = cal.component(.year, from: visiblePage)
+        let month = cal.component(.month, from: visiblePage)
         let timezone = TimeZone.current.identifier
+        // 새 요청 키 설정 및 기존 썸네일 초기화
+        let fetchKey = "\(spaceId)-\(year)-\(month)"
+        currentFetchKey = fetchKey
+        photos.removeAll()
+        calendar.reloadData()
 
         repository.fetchSpaceActivities(spaceId: spaceId, year: year, month: month, timezone: timezone)
             .observe(on: MainScheduler.instance)
@@ -244,24 +251,29 @@ final class CalendarViewController: UIViewController {
                 // 오늘의 미션
                 self.missionLabel.text = response.dailyMission.title
 
-                // 활동 날짜별 썸네일 맵핑
-                var photoMap: [Date: UIImage] = [:]
-                let formatter = ISO8601DateFormatter()
-                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
+                // 활동 날짜별 썸네일 맵핑 (비동기 이미지 로드)
+                let expectedKey = self.currentFetchKey // 캡처
                 for activity in response.activities {
-                    if let utcDate = formatter.date(from: activity.date) {
-                        let localDate = utcDate.convertToLocal()
-                        if let url = URL(string: activity.photo),
-                           let data = try? Data(contentsOf: url),
-                           let image = UIImage(data: data) {
-                            photoMap[localDate] = image
+                    guard let utcDate = self.parseActivityUTCDate(activity.date) else { continue }
+                    let localDate = utcDate.convertToLocal()
+                    guard let url = URL(string: activity.photo) else { continue }
+
+                    self.logger.debug("[Image] start download — date=\(activity.date, privacy: .public), url=\(activity.photo, privacy: .public)")
+                    self.loadImage(from: url) { [weak self] image in
+                        guard let self = self else { return }
+                        // 요청 키가 바뀌었으면(월/칩 변경) 무시
+                        guard expectedKey == self.currentFetchKey else { return }
+                        if let image {
+                            let localDay = self.cal.startOfDay(for: localDate)
+                            self.photos[localDay] = image
+                            // 해당 날짜만 갱신 (간단히 전체 리로드)
+                            self.calendar.reloadData()
+                            self.logger.debug("[Image] download success — mappedLocalDay=\(localDay as NSDate, privacy: .public)")
+                        } else {
+                            self.logger.error("[Image] download failed — url=\(activity.photo, privacy: .public)")
                         }
                     }
                 }
-
-                self.photos = photoMap
-                self.calendar.reloadData()
 
             }, onFailure: { error in
                 let elapsed = Date().timeIntervalSince(requestStart)
@@ -338,16 +350,20 @@ final class CalendarViewController: UIViewController {
         guard let newDate = cal.date(byAdding: .month, value: -1, to: calendar.currentPage) else { return }
         calendar.setCurrentPage(newDate, animated: true)
         refreshHeaderTitle()
-        makeDummyPhotos(for: newDate)
-        calendar.reloadData()
+        if joinedSpaces.indices.contains(selectedChipIndex) {
+            let selected = joinedSpaces[selectedChipIndex]
+            fetchSpaceActivities(spaceId: selected.id)
+        }
     }
 
     @objc private func nextMonth() {
         guard let newDate = cal.date(byAdding: .month, value: 1, to: calendar.currentPage) else { return }
         calendar.setCurrentPage(newDate, animated: true)
         refreshHeaderTitle()
-        makeDummyPhotos(for: newDate)
-        calendar.reloadData()
+        if joinedSpaces.indices.contains(selectedChipIndex) {
+            let selected = joinedSpaces[selectedChipIndex]
+            fetchSpaceActivities(spaceId: selected.id)
+        }
     }
 
     @objc private func didTapMission() {
@@ -617,7 +633,10 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
         if monthPosition != .current {
             calendar.setCurrentPage(date, animated: true)
             refreshHeaderTitle()
-            makeDummyPhotos(for: date)
+            if joinedSpaces.indices.contains(selectedChipIndex) {
+                let selected = joinedSpaces[selectedChipIndex]
+                fetchSpaceActivities(spaceId: selected.id)
+            }
         }
 
         // 1) 해당 날짜에 사진이 있으면 → 상세 모달 표시
@@ -679,8 +698,10 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
 
     func calendarCurrentPageDidChange(_ calendar: FSCalendar) {
         refreshHeaderTitle()
-        makeDummyPhotos(for: calendar.currentPage)
-        calendar.reloadData()
+        if joinedSpaces.indices.contains(selectedChipIndex) {
+            let selected = joinedSpaces[selectedChipIndex]
+            fetchSpaceActivities(spaceId: selected.id)
+        }
     }
 
     func calendar(_ calendar: FSCalendar, appearance: FSCalendarAppearance, titleDefaultColorFor date: Date) -> UIColor? { .clear }
@@ -712,6 +733,59 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
+    }
+}
+
+// MARK: - Image Loading
+extension CalendarViewController {
+    /// 간단한 비동기 이미지 로더
+    fileprivate func loadImage(from url: URL, completion: @escaping (UIImage?) -> Void) {
+        let task = URLSession.shared.dataTask(with: url) { data, response, error in
+            if let data, let image = UIImage(data: data) {
+                DispatchQueue.main.async { completion(image) }
+            } else {
+                DispatchQueue.main.async { completion(nil) }
+            }
+        }
+        task.resume()
+    }
+}
+
+// MARK: - Date Parsing (UTC -> Date)
+extension CalendarViewController {
+    /// 서버에서 오는 UTC 문자열(타임존 표기 없을 수 있음)을 Date로 파싱
+    fileprivate func parseActivityUTCDate(_ string: String) -> Date? {
+        // 1) ISO8601 with fractional seconds (UTC)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        iso.timeZone = TimeZone(secondsFromGMT: 0)
+        if let d = iso.date(from: string) { return d }
+
+        // 2) ISO8601 without fractional seconds (UTC)
+        let iso2 = ISO8601DateFormatter()
+        iso2.formatOptions = [.withInternetDateTime]
+        iso2.timeZone = TimeZone(secondsFromGMT: 0)
+        if let d = iso2.date(from: string) { return d }
+
+        // 3) Explicit formats assuming UTC
+        let fmts = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss"
+        ]
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = TimeZone(secondsFromGMT: 0)
+        for f in fmts {
+            df.dateFormat = f
+            if let d = df.date(from: string) { return d }
+        }
+
+        // 4) Try appending 'Z' if missing
+        if let d = iso.date(from: string + "Z") { return d }
+
+        logger.error("[DateParse] failed to parse UTC date — string=\(string, privacy: .public)")
+        return nil
     }
 }
 
