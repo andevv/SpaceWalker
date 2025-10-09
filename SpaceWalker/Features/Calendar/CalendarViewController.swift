@@ -320,6 +320,30 @@ final class CalendarViewController: UIViewController {
                 self.missionLabel.text = response.dailyMission.title
                 self.currentDailyMissionId = response.dailyMission.missionId
 
+                // Check if there's an activity for 'today' in user's local timezone (Calendar.current)
+                let todayLocalStart = self.cal.startOfDay(for: Date())
+                var hasTodayActivity = false
+                for activity in response.activities {
+                    if let utcDate = self.parseActivityUTCDate(activity.date) {
+                        // Date is absolute; compare using local Calendar to determine same local day
+                        if self.cal.isDate(utcDate, inSameDayAs: todayLocalStart) {
+                            hasTodayActivity = true
+                            break
+                        }
+                    }
+                }
+
+                // Update mission button based on today's completion status
+                var btnConfig = self.missionButton.configuration
+                if hasTodayActivity {
+                    self.missionButton.isEnabled = false
+                    btnConfig?.title = "오늘 미션을 완료했어요"
+                } else {
+                    self.missionButton.isEnabled = true
+                    btnConfig?.title = "미션하러 가기"
+                }
+                self.missionButton.configuration = btnConfig
+
                 // 활동 날짜별 썸네일 맵핑 (병렬 다운로드 + 일괄 갱신)
                 let expectedKey = fetchKey // 캡처: non-optional key
                 let group = DispatchGroup()
@@ -328,14 +352,13 @@ final class CalendarViewController: UIViewController {
 
                 for activity in response.activities {
                     guard let utcDate = self.parseActivityUTCDate(activity.date) else { continue }
-                    let localDate = utcDate.convertToLocal()
                     guard let url = URL(string: activity.photo) else { continue }
 
-                    // Lightweight in-memory cache lookup (per local day)
-                    let dayKeyString = "space:\(spaceId)|day:\(self.dayString(for: self.cal.startOfDay(for: localDate)))"
+                    // Lightweight in-memory cache lookup (per local day using Calendar.current)
+                    let dayKeyString = "space:\(spaceId)|day:\(self.dayString(for: self.cal.startOfDay(for: utcDate)))"
                     if let cached = self.imageCache.object(forKey: dayKeyString as NSString) {
                         // 캐시 적중: 결과에 즉시 반영하고 다운로드 생략
-                        resultQueue.async(flags: .barrier) { resultMap[self.cal.startOfDay(for: localDate)] = cached }
+                        resultQueue.async(flags: .barrier) { resultMap[self.cal.startOfDay(for: utcDate)] = cached }
                         self.logger.debug("[Cache] hit — key=\(dayKeyString, privacy: .public)")
                         continue
                     }
@@ -348,7 +371,7 @@ final class CalendarViewController: UIViewController {
                         // 요청 키가 바뀌었으면(월/칩 변경) 무시
                         guard expectedKey == self.currentFetchKey else { return }
                         if let image {
-                            let localDay = self.cal.startOfDay(for: localDate)
+                            let localDay = self.cal.startOfDay(for: utcDate)
                             // 캐시에 저장 후 결과 반영 (동시 접근 보호)
                             let key = "space:\(spaceId)|day:\(self.dayString(for: localDay))"
                             self.imageCache.setObject(image, forKey: key as NSString)
