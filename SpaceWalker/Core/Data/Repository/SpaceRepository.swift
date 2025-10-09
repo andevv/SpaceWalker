@@ -205,5 +205,56 @@ final class SpaceRepository {
             }
         }
     }
-}
 
+    // MARK: - Presigned Upload DTOs
+    struct PresignedUploadResponse: Decodable {
+        let mainImageKey: String
+        let mainImageUrl: String
+    }
+
+    struct DailyMissionSubmit: Encodable {
+        let missionId: Int
+        let title: String
+    }
+
+    struct SubmitMissionRequestBody: Encodable {
+        let s3objectKey: String
+        let dailyMission: DailyMissionSubmit
+        let isPublic: Bool
+    }
+
+    struct SubmitMissionResponse: Decodable {
+        let success: Bool
+    }
+
+    // MARK: - Presigned URL 발급
+    func requestPresignedUpload(spaceId: Int, mimeType: String) -> Single<PresignedUploadResponse> {
+        let endpoint = "/api/v1/space/\(spaceId)/upload"
+        let params: [String: Any] = ["mimeType": mimeType]
+        return NetworkManager.shared.request(
+            endpoint,
+            method: .get,
+            parameters: params,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - 미션 제출
+    func submitMission(spaceId: Int, s3objectKey: String, dailyMission: DailyMissionSubmit, isPublic: Bool = true) -> Single<SubmitMissionResponse> {
+        let endpoint = "/api/v1/space/\(spaceId)/submit"
+        let params: [String: Any] = [
+            "s3objectKey": s3objectKey,
+            "dailyMission": [
+                "missionId": dailyMission.missionId,
+                "title": dailyMission.title
+            ],
+            "isPublic": isPublic
+        ]
+        return NetworkManager.shared.request(
+            endpoint,
+            method: .post,
+            parameters: params,
+            requiresAuth: true
+        )
+    }
+}

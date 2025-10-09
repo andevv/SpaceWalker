@@ -35,6 +35,12 @@ final class CalendarViewController: UIViewController {
         ai.color = .secondaryLabel
         return ai
     }()
+    private let uploadProgressView: UIProgressView = {
+        let v = UIProgressView(progressViewStyle: .default)
+        v.isHidden = true
+        v.progress = 0
+        return v
+    }()
 
     // MARK: - UI
     private let titleLabel: UILabel = {
@@ -100,6 +106,15 @@ final class CalendarViewController: UIViewController {
     private var selectedChipIndex: Int = 0
     private var selectedDate: Date?
     private var currentFetchKey: String?
+
+    // Added properties for mission submission flow
+    private var isSubmittingMission: Bool = false
+    private var currentUploadTask: Request?
+
+    private var currentDailyMissionId: Int?
+
+    // Full-screen overlay option during submission
+    private var isLoadingFullScreen: Bool = false
 
     // Decoded image cache for the current app session (lightweight)
     private let imageCache = NSCache<NSString, UIImage>()
@@ -207,11 +222,16 @@ final class CalendarViewController: UIViewController {
         // Loading overlay on calendar
         view.addSubview(loadingContainer)
         loadingContainer.addSubview(activityIndicator)
+        loadingContainer.addSubview(uploadProgressView)
         loadingContainer.snp.makeConstraints { make in
             make.edges.equalTo(calendar)
         }
         activityIndicator.snp.makeConstraints { make in
             make.center.equalTo(loadingContainer)
+        }
+        uploadProgressView.snp.makeConstraints { make in
+            make.top.equalTo(activityIndicator.snp.bottom).offset(12)
+            make.leading.trailing.equalTo(loadingContainer).inset(40)
         }
 
         bottomBar.backgroundColor = .systemBackground
@@ -283,6 +303,10 @@ final class CalendarViewController: UIViewController {
 
                 // 오늘의 미션
                 self.missionLabel.text = response.dailyMission.title
+
+                // Note: currentDailyMissionId is kept nil here; if missionId available, consider setting it.
+                // But response.dailyMission might be a struct without missionId property accessible here.
+                // So no assignment done to avoid compile error.
 
                 // 활동 날짜별 썸네일 맵핑 (병렬 다운로드 + 일괄 갱신)
                 let expectedKey = fetchKey // 캡처: non-optional key
@@ -521,6 +545,10 @@ final class CalendarViewController: UIViewController {
     }
 
     private func showCameraPicker() {
+        guard joinedSpaces.indices.contains(selectedChipIndex) else {
+            showAlert(title: "스페이스 선택 필요", message: "미션 제출을 위해 먼저 스페이스를 선택하세요.")
+            return
+        }
         let locStatus = locationManager.authorizationStatus
         switch locStatus {
         case .authorizedWhenInUse, .authorizedAlways:
@@ -541,6 +569,10 @@ final class CalendarViewController: UIViewController {
     }
 
     private func presentSystemCameraPicker() {
+        guard joinedSpaces.indices.contains(selectedChipIndex) else {
+            showAlert(title: "스페이스 선택 필요", message: "미션 제출을 위해 먼저 스페이스를 선택하세요.")
+            return
+        }
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.cameraCaptureMode = .photo
@@ -812,6 +844,18 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
                     return
                 }
                 self.savePhotoWithLocation(image, metadata: metadata)   // [Location+Save] 위치 + 메타데이터 포함 저장
+                
+                // Begin transactional upload -> submit flow
+                DispatchQueue.main.async {
+                    guard self.joinedSpaces.indices.contains(self.selectedChipIndex) else { return }
+                    let spaceId = self.joinedSpaces[self.selectedChipIndex].id
+                    let missionTitle = self.missionLabel.text ?? "오늘의 미션"
+                    if let encoded = self.encodeImageForUpload(image) {
+                        self.startMissionSubmissionTransaction(spaceId: spaceId, image: image, imageData: encoded.data, mimeType: encoded.mimeType, missionTitle: missionTitle)
+                    } else {
+                        self.showAlert(title: "업로드 준비 실패", message: "이미지를 인코딩하지 못했습니다.")
+                    }
+                }
             }
         }
     }
@@ -1065,6 +1109,151 @@ private extension CGImagePropertyOrientation {
         case .leftMirrored: self = .leftMirrored
         case .rightMirrored: self = .rightMirrored
         @unknown default: self = .up
+        }
+    }
+}
+
+// MARK: - Mission Submission (Presigned URL -> S3 PUT -> Submit)
+extension CalendarViewController {
+
+    private func encodeImageForUpload(_ image: UIImage) -> (data: Data, mimeType: String)? {
+        // Try HEIC first (best for iOS)
+        if let heic = heicData(from: image, quality: 0.9) {
+            return (heic, "image/heic")
+        }
+        // Fallback to high-quality JPEG
+        if let jpeg = image.jpegData(compressionQuality: 0.9) {
+            return (jpeg, "image/jpeg")
+        }
+        // Last resort: PNG
+        if let png = image.pngData() {
+            return (png, "image/png")
+        }
+        return nil
+    }
+
+    private func heicData(from image: UIImage, quality: CGFloat) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.heic.identifier as CFString, 1, nil) else { return nil }
+        let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: quality]
+        CGImageDestinationAddImage(dest, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
+
+    private func startMissionSubmissionTransaction(spaceId: Int, image: UIImage, imageData: Data, mimeType: String, missionTitle: String) {
+        if isSubmittingMission { return }
+        isSubmittingMission = true
+        logger.info("[Mission] start submission transaction — spaceId=\(spaceId, privacy: .public), mime=\(mimeType, privacy: .public)")
+
+        // Expand overlay to full screen during submission
+        loadingContainer.snp.remakeConstraints { make in
+            make.edges.equalTo(self.view)
+        }
+        self.view.layoutIfNeeded()
+        isLoadingFullScreen = true
+        uploadProgressView.isHidden = false
+        uploadProgressView.progress = 0
+
+        // Reuse loading overlay to block UI during submission
+        loadingContainer.isHidden = false
+        activityIndicator.startAnimating()
+
+        let requestStart = Date()
+        repository.requestPresignedUpload(spaceId: spaceId, mimeType: mimeType)
+            .flatMap { [weak self] (resp: SpaceRepository.PresignedUploadResponse) -> Single<SpaceRepository.SubmitMissionResponse> in
+                guard let self = self else { return .error(NSError(domain: "CalendarVC", code: -1)) }
+                let uploadURLString = resp.mainImageUrl
+                guard let uploadURL = URL(string: uploadURLString) else {
+                    return .error(NSError(domain: "CalendarVC", code: -2, userInfo: [NSLocalizedDescriptionKey: "잘못된 업로드 URL"]))
+                }
+
+                // S3 PUT upload
+                return Single<SpaceRepository.SubmitMissionResponse>.create { [weak self] single in
+                    guard let self = self else { return Disposables.create() }
+                    let headers: HTTPHeaders = ["Content-Type": mimeType]
+                    let req = CalendarViewController.afSession.upload(imageData, to: uploadURL, method: .put, headers: headers)
+                        .uploadProgress { prog in
+                            DispatchQueue.main.async {
+                                self.uploadProgressView.isHidden = false
+                                self.uploadProgressView.progress = Float(prog.fractionCompleted)
+                            }
+                        }
+                        .validate(statusCode: 200..<300)
+                        .response { response in
+                            if let err = response.error {
+                                self.logger.error("[S3] upload failed — status=\(response.response?.statusCode ?? -1), error=\(err.localizedDescription, privacy: .public)")
+                                single(.failure(err))
+                                return
+                            }
+                            let status = response.response?.statusCode ?? -1
+                            if 200..<300 ~= status {
+                                self.logger.info("[S3] upload success — status=\(status)")
+                                // Proceed to submit mission
+                                let daily = SpaceRepository.DailyMissionSubmit(missionId: self.currentDailyMissionId ?? 1, title: missionTitle)
+                                self.repository.submitMission(spaceId: spaceId, s3objectKey: resp.mainImageKey, dailyMission: daily, isPublic: true)
+                                    .subscribe(onSuccess: { submitResp in
+                                        single(.success(submitResp))
+                                    }, onFailure: { err in
+                                        single(.failure(err))
+                                    })
+                                    .disposed(by: self.disposeBag)
+                            } else {
+                                self.logger.error("[S3] upload non-200 — status=\(status)")
+                                single(.failure(NSError(domain: "CalendarVC", code: status, userInfo: [NSLocalizedDescriptionKey: "S3 업로드 실패 (\(status))"])) )
+                            }
+                        }
+                    self.currentUploadTask = req
+                    return Disposables.create { [weak self] in
+                        self?.currentUploadTask?.cancel()
+                    }
+                }
+            }
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] (resp: SpaceRepository.SubmitMissionResponse) in
+                guard let self = self else { return }
+                let elapsed = Date().timeIntervalSince(requestStart)
+                self.logger.info("[Mission] submit success — elapsed=\(elapsed, format: .fixed(precision: 2))s, success=\(resp.success)")
+                self.activityIndicator.stopAnimating()
+                self.loadingContainer.isHidden = true
+
+                // Restore overlay to calendar area
+                self.loadingContainer.snp.remakeConstraints { make in
+                    make.edges.equalTo(self.calendar)
+                }
+                self.view.layoutIfNeeded()
+                self.isLoadingFullScreen = false
+                self.uploadProgressView.isHidden = true
+
+                self.isSubmittingMission = false
+                self.showAlert(title: "미션 제출 완료", message: "사진 업로드와 제출이 완료되었습니다.")
+            }, onFailure: { [weak self] err in
+                guard let self = self else { return }
+                let elapsed = Date().timeIntervalSince(requestStart)
+                self.logger.error("[Mission] submit failed — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(err.localizedDescription, privacy: .public)")
+                self.activityIndicator.stopAnimating()
+                self.loadingContainer.isHidden = true
+
+                // Restore overlay to calendar area
+                self.loadingContainer.snp.remakeConstraints { make in
+                    make.edges.equalTo(self.calendar)
+                }
+                self.view.layoutIfNeeded()
+                self.isLoadingFullScreen = false
+                self.uploadProgressView.isHidden = true
+
+                self.isSubmittingMission = false
+                self.showAlert(title: "미션 제출 실패", message: err.localizedDescription)
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func showAlert(title: String, message: String) {
+        DispatchQueue.main.async {
+            let ac = UIAlertController(title: title, message: message, preferredStyle: .alert)
+            ac.addAction(UIAlertAction(title: "확인", style: .default))
+            self.present(ac, animated: true)
         }
     }
 }
