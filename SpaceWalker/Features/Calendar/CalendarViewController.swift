@@ -21,6 +21,21 @@ import Alamofire
 final class CalendarViewController: UIViewController {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpaceWalker", category: "CalendarViewController")
 
+    // Loading overlay for calendar image fetching
+    private let loadingContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.6)
+        v.isHidden = true
+        v.isUserInteractionEnabled = true // block taps while loading
+        return v
+    }()
+    private let activityIndicator: UIActivityIndicatorView = {
+        let ai = UIActivityIndicatorView(style: .large)
+        ai.hidesWhenStopped = false
+        ai.color = .secondaryLabel
+        return ai
+    }()
+
     // MARK: - UI
     private let titleLabel: UILabel = {
         let lb = UILabel()
@@ -189,6 +204,16 @@ final class CalendarViewController: UIViewController {
             make.bottom.lessThanOrEqualTo(bottomBar.snp.top).offset(-20)
         }
 
+        // Loading overlay on calendar
+        view.addSubview(loadingContainer)
+        loadingContainer.addSubview(activityIndicator)
+        loadingContainer.snp.makeConstraints { make in
+            make.edges.equalTo(calendar)
+        }
+        activityIndicator.snp.makeConstraints { make in
+            make.center.equalTo(loadingContainer)
+        }
+
         bottomBar.backgroundColor = .systemBackground
         bottomBar.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview()
@@ -244,6 +269,9 @@ final class CalendarViewController: UIViewController {
         currentFetchKey = fetchKey
         photos.removeAll()
         calendar.reloadData()
+        
+        // Show loading indicator for this fetch cycle
+        self.showCalendarLoading(expectedKey: fetchKey)
 
         repository.fetchSpaceActivities(spaceId: spaceId, year: year, month: month, timezone: timezone)
             .observe(on: MainScheduler.instance)
@@ -257,7 +285,7 @@ final class CalendarViewController: UIViewController {
                 self.missionLabel.text = response.dailyMission.title
 
                 // 활동 날짜별 썸네일 맵핑 (병렬 다운로드 + 일괄 갱신)
-                let expectedKey = self.currentFetchKey // 캡처
+                let expectedKey = fetchKey // 캡처: non-optional key
                 let group = DispatchGroup()
                 var resultMap: [Date: UIImage] = [:]
                 let resultQueue = DispatchQueue(label: "calendar.photos.result", attributes: .concurrent)
@@ -302,6 +330,7 @@ final class CalendarViewController: UIViewController {
                     // 요청 키가 바뀌었으면(월/칩 변경) 무시
                     guard expectedKey == self.currentFetchKey else { return }
                     // 결과를 한 번에 반영하고 캘린더 갱신
+                    self.hideCalendarLoading(expectedKey: expectedKey)
                     self.photos = resultMap
                     self.calendar.reloadData()
                     self.logger.info("[Image] all downloads completed — count=\(resultMap.count, privacy: .public)")
@@ -309,6 +338,7 @@ final class CalendarViewController: UIViewController {
 
             }, onFailure: { error in
                 let elapsed = Date().timeIntervalSince(requestStart)
+                self.hideCalendarLoading(expectedKey: self.currentFetchKey ?? "")
                 self.logger.error("[Network] fetchSpaceActivities failure — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(error.localizedDescription, privacy: .public)")
 
                 print("Space activities fetch failed:", error.localizedDescription)
@@ -400,6 +430,21 @@ final class CalendarViewController: UIViewController {
 
     @objc private func didTapMission() {
         presentCamera()
+    }
+
+    // MARK: - Loading Indicator
+    private func showCalendarLoading(expectedKey: String) {
+        // Only show if this request is still current
+        guard expectedKey == currentFetchKey else { return }
+        loadingContainer.isHidden = false
+        activityIndicator.startAnimating()
+    }
+
+    private func hideCalendarLoading(expectedKey: String) {
+        // Only hide if this request is still current
+        guard expectedKey == currentFetchKey else { return }
+        activityIndicator.stopAnimating()
+        loadingContainer.isHidden = true
     }
 
     // MARK: - Camera & Photo Library
