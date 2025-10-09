@@ -112,6 +112,21 @@ final class CalendarViewController: UIViewController {
     private var currentUploadTask: Request?
 
     private var currentDailyMissionId: Int?
+    // Holds extracted metadata for the current capture until upload completes
+    private struct PendingPhotoMeta {
+        let image: UIImage
+        let capturedAt: Date
+        let width: Int
+        let height: Int
+        let location: CLLocation?
+        let spaceId: Int
+        let missionId: Int?
+        let missionTitle: String?
+        let mimeType: String?
+    }
+    private var pendingPhotoMeta: PendingPhotoMeta?
+    // Tracks the most recent local metadata row for the current capture
+    private var lastSavedPhotoObjectId: ObjectId?
 
     // Full-screen overlay option during submission
     private var isLoadingFullScreen: Bool = false
@@ -303,10 +318,7 @@ final class CalendarViewController: UIViewController {
 
                 // 오늘의 미션
                 self.missionLabel.text = response.dailyMission.title
-
-                // Note: currentDailyMissionId is kept nil here; if missionId available, consider setting it.
-                // But response.dailyMission might be a struct without missionId property accessible here.
-                // So no assignment done to avoid compile error.
+                self.currentDailyMissionId = response.dailyMission.missionId
 
                 // 활동 날짜별 썸네일 맵핑 (병렬 다운로드 + 일괄 갱신)
                 let expectedKey = fetchKey // 캡처: non-optional key
@@ -836,6 +848,25 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
         let metadata = info[.mediaMetadata] as? [String: Any]
         picker.dismiss(animated: true) { [weak self] in
             guard let self, let image else { return }
+            
+            // Extract and store metadata for later Realm persistence (after upload)
+            let capturedAt = Date()
+            let pixelW = Int(image.size.width * image.scale)
+            let pixelH = Int(image.size.height * image.scale)
+            let location = self.currentLocation // prefer current one-shot location
+            let spaceId = (self.joinedSpaces.indices.contains(self.selectedChipIndex)) ? self.joinedSpaces[self.selectedChipIndex].id : 0
+            let missionId = self.currentDailyMissionId
+            let missionTitle = self.missionLabel.text
+            // mimeType will be known when encoding for upload
+            self.pendingPhotoMeta = PendingPhotoMeta(image: image,
+                                                     capturedAt: capturedAt,
+                                                     width: pixelW,
+                                                     height: pixelH,
+                                                     location: location,
+                                                     spaceId: spaceId,
+                                                     missionId: missionId,
+                                                     missionTitle: missionTitle,
+                                                     mimeType: nil)
 
             // 앨범 저장 권한 확인 후, 위치 포함 저장 시도
             self.requestPhotoAddPermission { granted in
@@ -850,6 +881,7 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
                     guard self.joinedSpaces.indices.contains(self.selectedChipIndex) else { return }
                     let spaceId = self.joinedSpaces[self.selectedChipIndex].id
                     let missionTitle = self.missionLabel.text ?? "오늘의 미션"
+                    // Encode a fresh image without embedded metadata (GPS removed) for upload
                     if let encoded = self.encodeImageForUpload(image) {
                         self.startMissionSubmissionTransaction(spaceId: spaceId, image: image, imageData: encoded.data, mimeType: encoded.mimeType, missionTitle: missionTitle)
                     } else {
@@ -955,10 +987,7 @@ extension CalendarViewController {
         }, completionHandler: { success, error in
             DispatchQueue.main.async {
                 if success {
-                    // Realm에 사진 메타데이터 저장
-                    let capturedAt = Date()
-                    let s3Key = "pending-" + UUID().uuidString // TODO: S3 업로드 후 실제 키로 업데이트
-                    self.persistPhotoMetadata(image: image, capturedAt: capturedAt, location: location, s3Key: s3Key)
+                    // Realm persistence is deferred until upload succeeds (we only save to Photos here)
 
                     let ac = UIAlertController(title: "저장 완료",
                                                message: location != nil ? "위치가 포함되었습니다." : "위치 없이 저장되었습니다.",
@@ -1022,7 +1051,7 @@ extension CalendarViewController {
     }
     
     /// Realm에 PhotoMetadata 저장
-    private func persistPhotoMetadata(image: UIImage, capturedAt: Date, location: CLLocation?, s3Key: String) {
+    private func persistPhotoMetadata(image: UIImage, capturedAt: Date, location: CLLocation?, s3Key: String, mimeType: String? = nil) {
         // 픽셀 단위 해상도 계산
         let pixelWidth = Int(image.size.width * image.scale)
         let pixelHeight = Int(image.size.height * image.scale)
@@ -1040,9 +1069,21 @@ extension CalendarViewController {
             meta.height = pixelHeight
             meta.latitude = lat
             meta.longitude = lon
-
+            if let mimeType { meta.mimeType = mimeType }
+            
+            // Attach optional context
+            if self.joinedSpaces.indices.contains(self.selectedChipIndex) {
+                meta.spaceId = self.joinedSpaces[self.selectedChipIndex].id
+            } else {
+                meta.spaceId = 0
+            }
+            meta.missionId = self.currentDailyMissionId
+            meta.missionTitle = self.missionLabel.text
+            
             try realm.write {
                 realm.add(meta)
+                self.lastSavedPhotoObjectId = meta.id
+                
                 if let url = realm.configuration.fileURL {
                     #if targetEnvironment(simulator)
                     // 시뮬레이터: 이 경로는 macOS에서 직접 접근 가능 (Finder에서 열 수 있음)
@@ -1147,6 +1188,19 @@ extension CalendarViewController {
         isSubmittingMission = true
         logger.info("[Mission] start submission transaction — spaceId=\(spaceId, privacy: .public), mime=\(mimeType, privacy: .public)")
 
+        // Record mimeType into pending meta for later Realm persistence
+        if var pending = self.pendingPhotoMeta {
+            self.pendingPhotoMeta = PendingPhotoMeta(image: pending.image,
+                                                     capturedAt: pending.capturedAt,
+                                                     width: pending.width,
+                                                     height: pending.height,
+                                                     location: pending.location,
+                                                     spaceId: pending.spaceId,
+                                                     missionId: pending.missionId,
+                                                     missionTitle: pending.missionTitle,
+                                                     mimeType: mimeType)
+        }
+
         // Expand overlay to full screen during submission
         loadingContainer.snp.remakeConstraints { make in
             make.edges.equalTo(self.view)
@@ -1184,12 +1238,25 @@ extension CalendarViewController {
                         .response { response in
                             if let err = response.error {
                                 self.logger.error("[S3] upload failed — status=\(response.response?.statusCode ?? -1), error=\(err.localizedDescription, privacy: .public)")
+                                if let data = response.data, let body = String(data: data, encoding: .utf8) {
+                                    self.logger.error("[S3] upload error body — \(body, privacy: .public)")
+                                }
                                 single(.failure(err))
                                 return
                             }
                             let status = response.response?.statusCode ?? -1
                             if 200..<300 ~= status {
                                 self.logger.info("[S3] upload success — status=\(status)")
+                                
+                                // Persist metadata to Realm now with the real S3 key
+                                if let pending = self.pendingPhotoMeta {
+                                    self.persistPhotoMetadata(image: pending.image,
+                                                              capturedAt: pending.capturedAt,
+                                                              location: pending.location,
+                                                              s3Key: resp.mainImageKey,
+                                                              mimeType: mimeType)
+                                }
+                                
                                 // Proceed to submit mission
                                 let daily = SpaceRepository.DailyMissionSubmit(missionId: self.currentDailyMissionId ?? 1, title: missionTitle)
                                 self.repository.submitMission(spaceId: spaceId, s3objectKey: resp.mainImageKey, dailyMission: daily, isPublic: true)
@@ -1232,6 +1299,9 @@ extension CalendarViewController {
                 guard let self = self else { return }
                 let elapsed = Date().timeIntervalSince(requestStart)
                 self.logger.error("[Mission] submit failed — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(err.localizedDescription, privacy: .public)")
+                if let serverBody = self.extractServerErrorMessage(from: err) {
+                    self.logger.error("[Mission] submit server error body — \(serverBody, privacy: .public)")
+                }
                 self.activityIndicator.stopAnimating()
                 self.loadingContainer.isHidden = true
 
@@ -1243,10 +1313,33 @@ extension CalendarViewController {
                 self.isLoadingFullScreen = false
                 self.uploadProgressView.isHidden = true
 
+                let serverMsg = self.extractServerErrorMessage(from: err)
+                let message = serverMsg ?? err.localizedDescription
+                self.showAlert(title: "미션 제출 실패", message: message)
                 self.isSubmittingMission = false
-                self.showAlert(title: "미션 제출 실패", message: err.localizedDescription)
             })
             .disposed(by: disposeBag)
+    }
+
+    /// Try to extract server-provided error message from an Error produced by Alamofire/Network layer
+    private func extractServerErrorMessage(from error: Error) -> String? {
+        let nsErr = error as NSError
+        // Common Alamofire userInfo key for response data
+        let alamofireDataKey = "com.alamofire.serialization.response.error.data"
+        if let data = nsErr.userInfo[alamofireDataKey] as? Data, let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        // Fallback: sometimes other keys are used
+        let altKeys = ["AFNetworkingOperationFailingURLResponseDataErrorKey", NSLocalizedDescriptionKey]
+        for key in altKeys {
+            if let data = nsErr.userInfo[key] as? Data, let text = String(data: data, encoding: .utf8) {
+                return text
+            }
+            if let text = nsErr.userInfo[key] as? String, !text.isEmpty { return text }
+        }
+        // As a last resort, return the error's description
+        let desc = nsErr.userInfo[NSLocalizedDescriptionKey] as? String
+        return desc
     }
 
     private func showAlert(title: String, message: String) {

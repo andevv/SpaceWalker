@@ -25,4 +25,13 @@ final class PhotoMetadata: Object {
     @Persisted var latitude: Double
     @Persisted var longitude: Double
 
+    /// 사용자가 촬영한 스페이스 식별자 (없으면 0)
+    @Persisted var spaceId: Int
+
+    /// 오늘의 미션 정보 (선택적)
+    @Persisted var missionId: Int?
+    @Persisted var missionTitle: String?
+
+    /// 업로드 파일 포맷 (예: image/heic, image/jpeg, image/png)
+    @Persisted var mimeType: String?
 }
