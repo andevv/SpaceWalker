@@ -16,6 +16,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import RealmSwift
 import os
+import Alamofire
 
 final class CalendarViewController: UIViewController {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpaceWalker", category: "CalendarViewController")
@@ -85,6 +86,9 @@ final class CalendarViewController: UIViewController {
     private var selectedDate: Date?
     private var currentFetchKey: String?
 
+    // Decoded image cache for the current app session (lightweight)
+    private let imageCache = NSCache<NSString, UIImage>()
+
     /// 현재 페이지(월)의 날짜별 썸네일
     private var photos: [Date: UIImage] = [:]
     private let cal = Calendar.current
@@ -107,6 +111,7 @@ final class CalendarViewController: UIViewController {
         setupLayout()
         setupCalendar()
         refreshHeaderTitle()
+        imageCache.countLimit = 150 // up to 150 thumbnails in memory
 
         // 칩을 서버(더미)에서 받아와 구성
         fetchMySpaces()
@@ -262,6 +267,15 @@ final class CalendarViewController: UIViewController {
                     let localDate = utcDate.convertToLocal()
                     guard let url = URL(string: activity.photo) else { continue }
 
+                    // Lightweight in-memory cache lookup (per local day)
+                    let dayKeyString = "space:\(spaceId)|day:\(self.dayString(for: self.cal.startOfDay(for: localDate)))"
+                    if let cached = self.imageCache.object(forKey: dayKeyString as NSString) {
+                        // 캐시 적중: 결과에 즉시 반영하고 다운로드 생략
+                        resultQueue.async(flags: .barrier) { resultMap[self.cal.startOfDay(for: localDate)] = cached }
+                        self.logger.debug("[Cache] hit — key=\(dayKeyString, privacy: .public)")
+                        continue
+                    }
+
                     group.enter()
                     self.logger.debug("[Image] start download — date=\(activity.date, privacy: .public), url=\(activity.photo, privacy: .public)")
                     self.loadImage(from: url) { [weak self] image in
@@ -271,11 +285,13 @@ final class CalendarViewController: UIViewController {
                         guard expectedKey == self.currentFetchKey else { return }
                         if let image {
                             let localDay = self.cal.startOfDay(for: localDate)
-                            // 동시 접근 보호
+                            // 캐시에 저장 후 결과 반영 (동시 접근 보호)
+                            let key = "space:\(spaceId)|day:\(self.dayString(for: localDay))"
+                            self.imageCache.setObject(image, forKey: key as NSString)
                             resultQueue.async(flags: .barrier) {
                                 resultMap[localDay] = image
                             }
-                            self.logger.debug("[Image] download success — mappedLocalDay=\(localDay as NSDate, privacy: .public)")
+                            self.logger.debug("[Image] download success — mappedLocalDay=\(localDay as NSDate, privacy: .public), cacheKey=\(key, privacy: .public)")
                         } else {
                             self.logger.error("[Image] download failed — url=\(activity.photo, privacy: .public)")
                         }
@@ -626,6 +642,14 @@ final class CalendarViewController: UIViewController {
         var comps = DateComponents(year: y, month: m, day: day)
         return cal.date(from: comps)
     }
+    
+    private func dayString(for date: Date) -> String {
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.timeZone = .current
+        df.dateFormat = "yyyy-MM-dd"
+        return df.string(from: date)
+    }
 }
 
 // MARK: - FSCalendar DataSource / Delegate
@@ -754,16 +778,34 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
 
 // MARK: - Image Loading
 extension CalendarViewController {
+    // Alamofire 전용 세션 (URLCache 설정)
+    private static let afSession: Session = {
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .returnCacheDataElseLoad
+        config.urlCache = URLCache(
+            memoryCapacity: 50 * 1024 * 1024, // 50MB
+            diskCapacity: 200 * 1024 * 1024,  // 200MB
+            diskPath: "calendar.image.cache"
+        )
+        return Session(configuration: config)
+    }()
+
     /// 간단한 비동기 이미지 로더
     fileprivate func loadImage(from url: URL, completion: @escaping (UIImage?) -> Void) {
-        let task = URLSession.shared.dataTask(with: url) { data, response, error in
-            if let data, let image = UIImage(data: data) {
-                DispatchQueue.main.async { completion(image) }
-            } else {
-                DispatchQueue.main.async { completion(nil) }
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 30)
+        CalendarViewController.afSession.request(request)
+            .validate(statusCode: 200..<400)
+            .responseData(queue: .global(qos: .userInitiated)) { [weak self] response in
+                switch response.result {
+                case .success(let data):
+                    let image = UIImage(data: data)
+                    DispatchQueue.main.async { completion(image) }
+                case .failure(let error):
+                    // Optionally log using logger if available
+                    self?.logger.error("[AF] image request failed — url=\(url.absoluteString, privacy: .public), error=\(error.localizedDescription, privacy: .public)")
+                    DispatchQueue.main.async { completion(nil) }
+                }
             }
-        }
-        task.resume()
     }
 }
 
