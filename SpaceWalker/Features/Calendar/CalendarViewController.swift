@@ -251,28 +251,44 @@ final class CalendarViewController: UIViewController {
                 // 오늘의 미션
                 self.missionLabel.text = response.dailyMission.title
 
-                // 활동 날짜별 썸네일 맵핑 (비동기 이미지 로드)
+                // 활동 날짜별 썸네일 맵핑 (병렬 다운로드 + 일괄 갱신)
                 let expectedKey = self.currentFetchKey // 캡처
+                let group = DispatchGroup()
+                var resultMap: [Date: UIImage] = [:]
+                let resultQueue = DispatchQueue(label: "calendar.photos.result", attributes: .concurrent)
+
                 for activity in response.activities {
                     guard let utcDate = self.parseActivityUTCDate(activity.date) else { continue }
                     let localDate = utcDate.convertToLocal()
                     guard let url = URL(string: activity.photo) else { continue }
 
+                    group.enter()
                     self.logger.debug("[Image] start download — date=\(activity.date, privacy: .public), url=\(activity.photo, privacy: .public)")
                     self.loadImage(from: url) { [weak self] image in
+                        defer { group.leave() }
                         guard let self = self else { return }
                         // 요청 키가 바뀌었으면(월/칩 변경) 무시
                         guard expectedKey == self.currentFetchKey else { return }
                         if let image {
                             let localDay = self.cal.startOfDay(for: localDate)
-                            self.photos[localDay] = image
-                            // 해당 날짜만 갱신 (간단히 전체 리로드)
-                            self.calendar.reloadData()
+                            // 동시 접근 보호
+                            resultQueue.async(flags: .barrier) {
+                                resultMap[localDay] = image
+                            }
                             self.logger.debug("[Image] download success — mappedLocalDay=\(localDay as NSDate, privacy: .public)")
                         } else {
                             self.logger.error("[Image] download failed — url=\(activity.photo, privacy: .public)")
                         }
                     }
+                }
+
+                group.notify(queue: .main) {
+                    // 요청 키가 바뀌었으면(월/칩 변경) 무시
+                    guard expectedKey == self.currentFetchKey else { return }
+                    // 결과를 한 번에 반영하고 캘린더 갱신
+                    self.photos = resultMap
+                    self.calendar.reloadData()
+                    self.logger.info("[Image] all downloads completed — count=\(resultMap.count, privacy: .public)")
                 }
 
             }, onFailure: { error in
