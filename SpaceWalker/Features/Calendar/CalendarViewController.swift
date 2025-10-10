@@ -123,6 +123,7 @@ final class CalendarViewController: UIViewController {
         let missionId: Int?
         let missionTitle: String?
         let mimeType: String?
+        let deviceName: String?
     }
     private var pendingPhotoMeta: PendingPhotoMeta?
     // Tracks the most recent local metadata row for the current capture
@@ -889,6 +890,7 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
             let spaceId = (self.joinedSpaces.indices.contains(self.selectedChipIndex)) ? self.joinedSpaces[self.selectedChipIndex].id : 0
             let missionId = self.currentDailyMissionId
             let missionTitle = self.missionLabel.text
+            let deviceName = (metadata?[kCGImagePropertyTIFFDictionary as String] as? [String: Any])?[kCGImagePropertyTIFFModel as String] as? String ?? UIDevice.current.model
             // mimeType will be known when encoding for upload
             self.pendingPhotoMeta = PendingPhotoMeta(image: image,
                                                      capturedAt: capturedAt,
@@ -898,7 +900,8 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
                                                      spaceId: spaceId,
                                                      missionId: missionId,
                                                      missionTitle: missionTitle,
-                                                     mimeType: nil)
+                                                     mimeType: nil,
+                                                     deviceName: deviceName)
 
             // 앨범 저장 권한 확인 후, 위치 포함 저장 시도
             self.requestPhotoAddPermission { granted in
@@ -1047,6 +1050,9 @@ extension CalendarViewController {
         if tiff[kCGImagePropertyTIFFModel as String] == nil { tiff[kCGImagePropertyTIFFModel as String] = UIDevice.current.model }
         meta[kCGImagePropertyTIFFDictionary as String] = tiff
 
+        // Capture device model (to persist into Realm later)
+        let extractedDeviceModel: String = (tiff[kCGImagePropertyTIFFModel as String] as? String) ?? UIDevice.current.model
+
         // EXIF 기본값 보완 (렌즈 정보 등)
         var exif = (meta[kCGImagePropertyExifDictionary as String] as? [String: Any]) ?? [:]
         if exif[kCGImagePropertyExifLensMake as String] == nil { exif[kCGImagePropertyExifLensMake as String] = "Apple" }
@@ -1111,6 +1117,13 @@ extension CalendarViewController {
             }
             meta.missionId = self.currentDailyMissionId
             meta.missionTitle = self.missionLabel.text
+            
+            // Save device name (prefer value extracted at capture time)
+            if let pending = self.pendingPhotoMeta, let dev = pending.deviceName, !dev.isEmpty {
+                meta.deviceName = dev
+            } else {
+                meta.deviceName = UIDevice.current.model
+            }
             
             try realm.write {
                 realm.add(meta)
@@ -1301,7 +1314,8 @@ extension CalendarViewController {
                                                      spaceId: pending.spaceId,
                                                      missionId: pending.missionId,
                                                      missionTitle: pending.missionTitle,
-                                                     mimeType: mimeType)
+                                                     mimeType: mimeType,
+                                                     deviceName: pending.deviceName)
         }
 
         // Expand overlay to full screen during submission

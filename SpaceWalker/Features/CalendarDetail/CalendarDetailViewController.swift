@@ -552,7 +552,7 @@ final class CalendarDetailViewController: UIViewController {
                 timeDF.locale = Locale(identifier: "ko_KR")
                 timeDF.dateFormat = "a h:mm"
                 shotTimeText = timeDF.string(from: m.capturedAt)
-                deviceName = UIDevice.current.model // If you store device info in Realm later, replace here
+                deviceName = m.deviceName ?? UIDevice.current.model
                 if m.latitude != 0 || m.longitude != 0 {
                     latitude = m.latitude
                     longitude = m.longitude
@@ -660,4 +660,3 @@ final class CalendarDetailViewController: UIViewController {
         return Date()
     }
 }
-

@@ -25,6 +25,9 @@ final class PhotoMetadata: Object {
     @Persisted var latitude: Double
     @Persisted var longitude: Double
 
+    /// 촬영 기기 모델명 (예: iPhone 15 Pro)
+    @Persisted var deviceName: String?
+
     /// 사용자가 촬영한 스페이스 식별자 (없으면 0)
     @Persisted var spaceId: Int
 
@@ -35,3 +38,4 @@ final class PhotoMetadata: Object {
     /// 업로드 파일 포맷 (예: image/heic, image/jpeg, image/png)
     @Persisted var mimeType: String?
 }
+
