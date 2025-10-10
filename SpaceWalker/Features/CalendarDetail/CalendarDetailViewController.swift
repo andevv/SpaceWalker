@@ -37,6 +37,7 @@ final class CalendarDetailViewController: UIViewController {
     // MARK: - Dependencies
     private var model: SpacePhotoDetailModel
     private let identifier: SpacePostIdentifier
+    private var s3objectKey: String?
     var onDelete: (() -> Void)?
     private let spaceRepository = SpaceRepository()
 
@@ -532,12 +533,67 @@ final class CalendarDetailViewController: UIViewController {
                                    message: "정말로 이 사진을 삭제하시겠습니까?",
                                    preferredStyle: .alert)
         ac.addAction(UIAlertAction(title: "취소", style: .cancel))
-        ac.addAction(UIAlertAction(title: "삭제", style: .destructive, handler: { _ in
-            self.dismiss(animated: true) {
-                self.onDelete?()
+        ac.addAction(UIAlertAction(title: "삭제", style: .destructive, handler: { [weak self] _ in
+            guard let self else { return }
+            Task { [weak self] in
+                await self?.performDelete()
             }
         }))
         present(ac, animated: true)
+    }
+
+    private func setDeletingState(_ deleting: Bool) {
+        deleteButton.isEnabled = !deleting
+        var cfg = deleteButton.configuration ?? .bordered()
+        cfg.title = deleting ? "삭제 중…" : "사진 삭제"
+        cfg.showsActivityIndicator = deleting
+        deleteButton.configuration = cfg
+    }
+
+    private func showDeleteErrorAlert() {
+        let ac = UIAlertController(title: "삭제 실패", message: "게시글을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.", preferredStyle: .alert)
+        ac.addAction(UIAlertAction(title: "확인", style: .default))
+        self.present(ac, animated: true)
+    }
+
+    private func performDelete() async {
+        await MainActor.run { self.setDeletingState(true) }
+        do {
+            let resp = try await self.spaceRepository
+                .deletePost(spaceId: self.identifier.spaceId, postId: self.identifier.postId)
+                .value
+            if resp.success {
+                // Delete related local metadata from Realm using stored s3objectKey
+                if let key = self.s3objectKey {
+                    do {
+                        let realm = try await Realm()
+                        let objects = realm.objects(PhotoMetadata.self).filter("s3Key == %@", key)
+                        if !objects.isEmpty {
+                            try realm.write {
+                                realm.delete(objects)
+                            }
+                        }
+                    } catch {
+                        print("Realm delete failed: \(error)")
+                    }
+                }
+                await MainActor.run {
+                    self.dismiss(animated: true) {
+                        self.onDelete?()
+                    }
+                }
+            } else {
+                await MainActor.run {
+                    self.setDeletingState(false)
+                    self.showDeleteErrorAlert()
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.setDeletingState(false)
+                self.showDeleteErrorAlert()
+            }
+        }
     }
 
     private func fetchImage(from urlString: String) async -> UIImage? {
@@ -554,6 +610,7 @@ final class CalendarDetailViewController: UIViewController {
         do {
             let response = try await spaceRepository.fetchPostDetail(spaceId: identifier.spaceId, postId: identifier.postId).value
             print("Response received:", response)
+            self.s3objectKey = response.s3objectKey
 
             let isPublic = response.isPublic
             let likeCount = response.likeCount
@@ -696,3 +753,4 @@ final class CalendarDetailViewController: UIViewController {
         return Date()
     }
 }
+

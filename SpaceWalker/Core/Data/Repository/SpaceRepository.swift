@@ -268,6 +268,10 @@ final class SpaceRepository {
         let postId: Int
         let success: Bool
     }
+    
+    struct DeletePostResponse: Decodable {
+        let success: Bool
+    }
 
     // MARK: - Presigned URL 발급
     func requestPresignedUpload(spaceId: Int, mimeType: String, timezone: String) -> Single<PresignedUploadResponse> {
@@ -314,6 +318,17 @@ final class SpaceRepository {
             endpoint,
             method: .patch,
             parameters: params,
+            requiresAuth: true
+        )
+    }
+    
+    // MARK: - 게시글 삭제
+    func deletePost(spaceId: Int, postId: Int) -> Single<DeletePostResponse> {
+        let endpoint = "/api/v1/space/\(spaceId)/\(postId)"
+        return NetworkManager.shared.request(
+            endpoint,
+            method: .delete,
+            parameters: nil,
             requiresAuth: true
         )
     }

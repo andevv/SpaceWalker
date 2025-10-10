@@ -859,6 +859,11 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
                     self.photos.removeValue(forKey: key)
                     self.calendar.reloadData()
                 }
+                // After deletion, refresh activities to update mission button state
+                if self.joinedSpaces.indices.contains(self.selectedChipIndex) {
+                    let selected = self.joinedSpaces[self.selectedChipIndex]
+                    self.fetchSpaceActivities(spaceId: selected.id)
+                }
             }
 
             present(vc, animated: true)
