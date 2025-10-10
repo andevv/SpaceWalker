@@ -454,12 +454,37 @@ final class CalendarViewController: UIViewController {
     }
 
     private func setupChips() {
+        // Remove previous chips
         chipStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        // 최대 3개만
+
+        // Determine how many chips to show (max 3)
+        let count = min(spaces.count, 3)
+
+        // Configure stack distribution based on count
+        if count <= 1 {
+            // Single chip: keep it left-aligned and do not stretch
+            chipStack.distribution = .fill
+        } else {
+            // 2 or 3 chips: make them equal width
+            chipStack.distribution = .fillEqually
+        }
+
+        // Add chips
         for (idx, title) in spaces.prefix(3).enumerated() {
             let b = makeChipButton(title: title, selected: idx == selectedChipIndex)
             b.tag = idx
             b.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+
+            if count <= 1 {
+                // Prevent stretching for a single chip
+                b.setContentHuggingPriority(.required, for: .horizontal)
+                b.setContentCompressionResistancePriority(.required, for: .horizontal)
+            } else {
+                // Allow equal fill for 2~3 chips
+                b.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                b.setContentCompressionResistancePriority(.required, for: .horizontal)
+            }
+
             chipStack.addArrangedSubview(b)
         }
     }
