@@ -7,9 +7,13 @@
 
 import UIKit
 import SnapKit
+import Kingfisher
 
 final class FeedCell: UICollectionViewCell {
     static let reuseID = "FeedCell"
+
+    // Notifies controller when the remote image finishes loading (for layout updates)
+    var onImageLoaded: ((CGSize) -> Void)?
 
     // MARK: - UI
     private let imageView: UIImageView = {
@@ -91,14 +95,30 @@ final class FeedCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        // Cancel any ongoing image download and clear image
+        imageView.kf.cancelDownloadTask()
         imageView.image = nil
+        // Reset like state
         setLiked(false)
+        // Clear callbacks to avoid calling stale closures after reuse
+        onLikeTapped = nil
+        onReportTapped = nil
+        onImageLoaded = nil
     }
 
-    // MARK: - Configure
-    func configure(with item: FeedItem) {
-        imageView.image = item.image
-        setLiked(item.isLiked)
+    /// Configure cell with remote image URL using Kingfisher
+    func configure(url: URL, liked: Bool, placeholder: UIImage? = nil) {
+        imageView.kf.cancelDownloadTask()
+        imageView.kf.setImage(with: url, placeholder: placeholder, options: nil) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let value):
+                self.onImageLoaded?(value.image.size)
+            case .failure:
+                break
+            }
+        }
+        setLiked(liked)
     }
 
     private func setLiked(_ liked: Bool) {
@@ -134,3 +154,4 @@ final class FeedCell: UICollectionViewCell {
         onLikeTapped?()
     }
 }
+

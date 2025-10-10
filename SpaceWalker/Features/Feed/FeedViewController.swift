@@ -8,17 +8,20 @@
 import UIKit
 import SnapKit
 import RxSwift
+import Kingfisher
+import OSLog
 
 struct FeedItem {
     let postId: Int
     let photoURL: URL
-    var image: UIImage?
     var isLiked: Bool
 }
 
 final class FeedViewController: UIViewController {
     
     let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpaceWalker", category: "FeedViewController")
+    private var feedRequestCount: Int = 0
 
     // MARK: - UI
     private let chipStack = UIStackView()
@@ -37,7 +40,12 @@ final class FeedViewController: UIViewController {
     private var currentPage = 1
     private var totalPages = 1
     private var isLoading = false
-    private let pageSize = 20
+    private let pageSize = 10
+
+    // Cache measured image sizes by postId to compute dynamic heights
+    private var imageSizeCache: [Int: CGSize] = [:]
+    // Only items in this range are allowed to trigger layout changes (latest page)
+    private var mutableIndexRange: Range<Int>? = nil
 
     // MARK: - Init
     init() {
@@ -130,8 +138,8 @@ final class FeedViewController: UIViewController {
             chipStack.addArrangedSubview(b)
         }
         
-        // Reload feed when chips are (re)built to reflect current selection
-        loadFeed(reset: true)
+        // Only load if items are empty to avoid double initial load
+        if items.isEmpty { loadFeed(reset: true) }
     }
 
     // MARK: - Networking (Spaces)
@@ -161,9 +169,14 @@ final class FeedViewController: UIViewController {
         if isLoading { return }
         isLoading = true
 
+        let requestStart = Date()
+
         // Determine selected spaceId (0 = 전체)
         let selectedSpaceId: Int? = (selectedChipIndex == 0) ? nil : spaces[selectedChipIndex - 1].id
         let nextPage = reset ? 1 : (currentPage + 1)
+
+        feedRequestCount += 1
+        logger.info("[Feed] request #\(self.feedRequestCount) start — spaceId=\(selectedSpaceId?.description ?? "all", privacy: .public), page=\(nextPage), reset=\(reset, privacy: .public)")
 
         feedRepository.fetchFeed(spaceId: selectedSpaceId, page: nextPage, size: pageSize)
             .observe(on: MainScheduler.instance)
@@ -173,46 +186,71 @@ final class FeedViewController: UIViewController {
                 self.currentPage = resp.page
                 self.totalPages = resp.totalPages
 
-                if reset { self.items.removeAll() }
-
-                let newItems: [FeedItem] = resp.posts.compactMap { dto in
+                // Build a page payload (preserve order)
+                let pageTuples: [(postId: Int, url: URL, liked: Bool)] = resp.posts.compactMap { dto in
                     guard let url = URL(string: dto.photoUrl) else { return nil }
-                    return FeedItem(postId: dto.postId, photoURL: url, image: nil, isLiked: dto.liked)
+                    return (postId: dto.postId, url: url, liked: dto.liked)
                 }
-                self.items.append(contentsOf: newItems)
-                self.collectionView.reloadData()
 
-                // Prefetch images for newly added items
-                self.prefetchImages(for: newItems, startingAt: self.items.count - newItems.count)
+                // Prefetch image sizes for this page (sequential or parallel with DispatchGroup)
+                let group = DispatchGroup()
+                var sizedTuples: [(postId: Int, url: URL, liked: Bool, size: CGSize)] = []
+                let syncQueue = DispatchQueue(label: "feed.size.collect")
 
-                self.isLoading = false
+                for t in pageTuples {
+                    group.enter()
+                    // Use Kingfisher to retrieve image (will hit cache if available)
+                    KingfisherManager.shared.retrieveImage(with: t.url, options: nil, progressBlock: nil) { result in
+                        switch result {
+                        case .success(let value):
+                            let size = value.image.size
+                            syncQueue.async {
+                                sizedTuples.append((t.postId, t.url, t.liked, size))
+                                group.leave()
+                            }
+                        case .failure:
+                            // If failed to load, fallback to a reasonable default size to avoid stalling
+                            let fallback = CGSize(width: 3, height: 4) // aspect 3:4 as last resort
+                            syncQueue.async {
+                                sizedTuples.append((t.postId, t.url, t.liked, fallback))
+                                group.leave()
+                            }
+                        }
+                    }
+                }
+
+                group.notify(queue: .main) {
+                    // Maintain original order by mapping back using pageTuples order
+                    let sizeMap = Dictionary(uniqueKeysWithValues: sizedTuples.map { ($0.postId, $0.size) })
+
+                    if reset {
+                        self.items.removeAll()
+                        self.imageSizeCache.removeAll()
+                        self.mutableIndexRange = nil
+                    }
+
+                    let startIndex = self.items.count
+                    let newItems: [FeedItem] = pageTuples.map { t in
+                        if let sz = sizeMap[t.postId] { self.imageSizeCache[t.postId] = sz }
+                        return FeedItem(postId: t.postId, photoURL: t.url, isLiked: t.liked)
+                    }
+
+                    self.items.append(contentsOf: newItems)
+                    self.mutableIndexRange = startIndex..<(startIndex + newItems.count)
+                    self.collectionView.reloadData()
+
+                    let elapsed = Date().timeIntervalSince(requestStart)
+                    self.logger.info("[Feed] request #\(self.feedRequestCount) success — elapsed=\(elapsed, format: .fixed(precision: 2))s, page=\(self.currentPage), totalPages=\(self.totalPages), added=\(newItems.count), totalItems=\(self.items.count)")
+
+                    self.isLoading = false
+                }
             }, onFailure: { [weak self] error in
+                let elapsed = Date().timeIntervalSince(requestStart)
+                self?.logger.error("[Feed] request #\(self?.feedRequestCount ?? -1) failure — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(error.localizedDescription, privacy: .public)")
                 self?.isLoading = false
                 self?.presentErrorAlert(message: error.localizedDescription)
             })
             .disposed(by: disposeBag)
-    }
-
-    private func prefetchImages(for items: [FeedItem], startingAt startIndex: Int) {
-        let indices = (0..<items.count).map { startIndex + $0 }
-        for i in indices {
-            guard self.items.indices.contains(i) else { continue }
-            if self.items[i].image != nil { continue }
-            let url = self.items[i].photoURL
-            URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-                guard let self = self else { return }
-                if let data, let image = UIImage(data: data) {
-                    DispatchQueue.main.async {
-                        if self.items.indices.contains(i) {
-                            self.items[i].image = image
-                            // Reload just that item and invalidate layout to reflect correct aspect ratio
-                            self.collectionView.reloadItems(at: [IndexPath(item: i, section: 0)])
-                            self.collectionView.collectionViewLayout.invalidateLayout()
-                        }
-                    }
-                }
-            }.resume()
-        }
     }
 
     // MARK: - Actions
@@ -224,6 +262,8 @@ final class FeedViewController: UIViewController {
         // Reset and load first page for the selected filter
         currentPage = 0
         totalPages = 1
+        collectionView.setContentOffset(.zero, animated: false)
+        mutableIndexRange = nil
         loadFeed(reset: true)
     }
 
@@ -264,15 +304,22 @@ extension FeedViewController: UICollectionViewDataSource {
             withReuseIdentifier: FeedCell.reuseID,
             for: indexPath
         ) as! FeedCell
+        
         let item = items[indexPath.item]
-        if let image = item.image {
-            cell.configure(with: FeedItem(postId: item.postId, photoURL: item.photoURL, image: image, isLiked: item.isLiked))
-        } else {
-            // lightweight placeholder while loading
-            let placeholder = UIImage(systemName: "photo")!.withTintColor(.secondarySystemBackground, renderingMode: .alwaysOriginal)
-            cell.configure(with: FeedItem(postId: item.postId, photoURL: item.photoURL, image: placeholder, isLiked: item.isLiked))
-            // If near the end or image missing, ensure prefetch is active
-            prefetchImages(for: [item], startingAt: indexPath.item)
+        let placeholder = UIImage(systemName: "photo")?.withTintColor(.secondarySystemBackground, renderingMode: .alwaysOriginal)
+        cell.configure(url: item.photoURL, liked: item.isLiked, placeholder: placeholder)
+
+        cell.onImageLoaded = { [weak self] size in
+            guard let self = self else { return }
+            let postId = item.postId
+            // Cache size
+            if self.imageSizeCache[postId] != size {
+                self.imageSizeCache[postId] = size
+                // Only allow layout changes for the latest appended range
+                if let range = self.mutableIndexRange, range.contains(indexPath.item) {
+                    self.collectionView.collectionViewLayout.invalidateLayout()
+                }
+            }
         }
 
         cell.onLikeTapped = { [weak self, weak cell] in
@@ -280,7 +327,8 @@ extension FeedViewController: UICollectionViewDataSource {
             self.items[indexPath.item].isLiked.toggle()
             if let c = cell {
                 let updated = self.items[indexPath.item]
-                c.configure(with: FeedItem(postId: updated.postId, photoURL: updated.photoURL, image: updated.image, isLiked: updated.isLiked))
+                let placeholder = UIImage(systemName: "photo")?.withTintColor(.secondarySystemBackground, renderingMode: .alwaysOriginal)
+                c.configure(url: updated.photoURL, liked: updated.isLiked, placeholder: placeholder)
             } else {
                 self.collectionView.reloadItems(at: [indexPath])
             }
@@ -303,15 +351,12 @@ extension FeedViewController: MasonryLayoutDelegate {
                         heightForItemAt indexPath: IndexPath,
                         with width: CGFloat) -> CGFloat {
         let item = items[indexPath.item]
-        if let img = item.image {
-            let size = img.size
-            guard size.width > 0 else { return width * (4.0/3.0) }
+        if let size = imageSizeCache[item.postId], size.width > 0 {
             let aspect = size.height / size.width
             return width * aspect
-        } else {
-            // Placeholder ratio until image loads
-            return width * (4.0/3.0)
         }
+        // Fallback ratio while loading
+        return width * (4.0/3.0)
     }
 }
 
@@ -320,7 +365,7 @@ extension FeedViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let item = items[indexPath.item]
         let detail = FeedDetailViewController(model: FeedDetailModel(
-            image: item.image ?? UIImage(),
+            image: UIImage(),  // No preloaded image available
             likeCount: 0,
             authorName: "",
             missionTitle: ""
@@ -328,13 +373,12 @@ extension FeedViewController: UICollectionViewDelegate {
         navigationController?.pushViewController(detail, animated: true)
     }
     
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let offsetY = scrollView.contentOffset.y
-        let contentHeight = scrollView.contentSize.height
-        let height = scrollView.bounds.size.height
-        // Trigger when user scrolls near bottom and there are more pages
-        if offsetY > contentHeight - height * 1.5, !isLoading, currentPage < totalPages {
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        let threshold = 4
+        if indexPath.item >= items.count - threshold, !isLoading, currentPage < totalPages {
+            logger.debug("[Feed] willDisplay near end — triggering next page. index=\(indexPath.item), count=\(self.items.count), currentPage=\(self.currentPage), totalPages=\(self.totalPages)")
             loadFeed(reset: false)
         }
     }
 }
+
