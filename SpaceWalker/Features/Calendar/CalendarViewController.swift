@@ -334,22 +334,10 @@ final class CalendarViewController: UIViewController {
                 self.missionLabel.text = response.dailyMission.title
                 self.currentDailyMissionId = response.dailyMission.missionId
 
-                // Check if there's an activity for 'today' in user's local timezone (Calendar.current)
-                let todayLocalStart = self.cal.startOfDay(for: Date())
-                var hasTodayActivity = false
-                for activity in response.activities {
-                    if let utcDate = self.parseActivityUTCDate(activity.date) {
-                        // Date is absolute; compare using local Calendar to determine same local day
-                        if self.cal.isDate(utcDate, inSameDayAs: todayLocalStart) {
-                            hasTodayActivity = true
-                            break
-                        }
-                    }
-                }
-
-                // Update mission button based on today's completion status
+                // Update mission button based on API-provided didMission (true = already completed today)
+                let didMission = response.didMission
                 var btnConfig = self.missionButton.configuration
-                if hasTodayActivity {
+                if didMission {
                     self.missionButton.isEnabled = false
                     btnConfig?.title = "오늘 미션을 완료했어요"
                 } else {
@@ -443,10 +431,6 @@ final class CalendarViewController: UIViewController {
                 self.spaces = joinedSpaces.map { $0.name }
                 self.selectedChipIndex = 0
                 self.setupChips()
-
-                // 칩 반영 후 달력 갱신
-//                self.makeDummyPhotos(for: self.calendar.currentPage)
-//                self.calendar.reloadData()
                 
                 // 첫 번째 Space의 활동 조회
                 if let firstSpace = joinedSpaces.first {
@@ -791,25 +775,6 @@ final class CalendarViewController: UIViewController {
         b.isSelected = selected
         b.setNeedsUpdateConfiguration()
         return b
-    }
-
-    // MARK: - Dummy Photos (데모용)
-    private func makeDummyPhotos(for page: Date) {
-        let color: UIColor = [UIColor.systemBlue, .systemOrange, .systemGreen][selectedChipIndex % 3]
-        func colorImage(_ color: UIColor) -> UIImage {
-            let r = CGRect(x: 0, y: 0, width: 100, height: 100)
-            UIGraphicsBeginImageContextWithOptions(r.size, true, 0)
-            color.setFill(); UIRectFill(r)
-            let img = UIGraphicsGetImageFromCurrentImageContext()!
-            UIGraphicsEndImageContext()
-            return img
-        }
-        photos.removeAll()
-        for d in [1,3,5,8,12,15,18,20,22,25,27,30] {
-            if let date = dateFor(day: d, in: page) {
-                photos[date] = DayPhoto(image: colorImage(color), postId: 0)
-            }
-        }
     }
 
     private func dateFor(day: Int, in page: Date) -> Date? {

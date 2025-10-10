@@ -11,6 +11,7 @@ struct SpaceActivityResponse: Decodable {
     let spaceId: Int
     let name: String
     let dailyMission: MissionDTO
+    let didMission: Bool
     let activities: [ActivityDTO]
 }
 
@@ -25,3 +26,4 @@ struct ActivityDTO: Decodable {
     let photo: String
     let mission: MissionDTO
 }
+
