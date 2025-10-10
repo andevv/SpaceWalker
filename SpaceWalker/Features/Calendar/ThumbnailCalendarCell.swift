@@ -77,6 +77,9 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         thumbView.image = nil
         thumbView.backgroundColor = UIColor.secondarySystemFill
         dayBadge.text = nil
+        dayBadge.backgroundColor = .systemBackground
+        dayBadge.textColor = .label
+        dayBadge.layer.borderColor = UIColor.systemGray4.cgColor
         selectedRing.isHidden = true
         setDimmed(false)
     }
@@ -95,6 +98,28 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         }
         selectedRing.isHidden = !selected
         setDimmed(dimmed)
+
+        // Today badge styling (no todayDot)
+        if !dimmed {
+            let today = Date()
+            let calendar = Calendar.current
+            let todayDay = calendar.component(.day, from: today)
+            let isToday = (day == todayDay)
+
+            if isToday {
+                dayBadge.backgroundColor = .systemBlue
+                dayBadge.textColor = .white
+                dayBadge.layer.borderColor = UIColor.clear.cgColor
+            } else {
+                dayBadge.backgroundColor = .systemBackground
+                dayBadge.textColor = .label
+                dayBadge.layer.borderColor = UIColor.systemGray4.cgColor
+            }
+        } else {
+            dayBadge.backgroundColor = .systemBackground
+            dayBadge.textColor = .label
+            dayBadge.layer.borderColor = UIColor.systemGray4.cgColor
+        }
     }
 
     private func setDimmed(_ dimmed: Bool) {
@@ -103,3 +128,4 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         thumbView.alpha = alpha
     }
 }
+
