@@ -84,7 +84,7 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         setDimmed(false)
     }
 
-    func configure(day: Int, image: UIImage?, selected: Bool, dimmed: Bool) {
+    func configure(day: Int, image: UIImage?, selected: Bool, dimmed: Bool, date: Date? = nil) {
         // 내부 도형 감추기 (안전하게 한 번 더)
         self.shapeLayer.isHidden = true
 
@@ -99,22 +99,19 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         selectedRing.isHidden = !selected
         setDimmed(dimmed)
 
-        // Today badge styling (no todayDot)
-        if !dimmed {
-            let today = Date()
-            let calendar = Calendar.current
-            let todayDay = calendar.component(.day, from: today)
-            let isToday = (day == todayDay)
-
-            if isToday {
-                dayBadge.backgroundColor = .systemBlue
-                dayBadge.textColor = .white
-                dayBadge.layer.borderColor = UIColor.clear.cgColor
+        // Today badge styling – highlight only when the exact date is today
+        let isToday: Bool = {
+            if let date = date {
+                return Calendar.current.isDateInToday(date)
             } else {
-                dayBadge.backgroundColor = .systemBackground
-                dayBadge.textColor = .label
-                dayBadge.layer.borderColor = UIColor.systemGray4.cgColor
+                return false // Require exact date; do not infer by day number
             }
+        }()
+
+        if isToday {
+            dayBadge.backgroundColor = .systemBlue
+            dayBadge.textColor = .white
+            dayBadge.layer.borderColor = UIColor.clear.cgColor
         } else {
             dayBadge.backgroundColor = .systemBackground
             dayBadge.textColor = .label

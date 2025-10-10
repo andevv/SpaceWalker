@@ -784,7 +784,7 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
         let dimmed = (position != .current)
         let selected = (selectedDate != nil) && cal.isDate(selectedDate!, inSameDayAs: date)
         let image = photos.first { cal.isDate($0.key, inSameDayAs: date) }?.value.image
-        cell.configure(day: day, image: image, selected: selected, dimmed: dimmed)
+        cell.configure(day: day, image: image, selected: selected, dimmed: dimmed, date: date)
         return cell
     }
 
