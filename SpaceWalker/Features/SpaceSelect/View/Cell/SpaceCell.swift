@@ -28,8 +28,9 @@ final class SpaceCell: UITableViewCell {
     }()
 
     private let checkmarkView: UIImageView = {
+        let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
         let iv = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
-        iv.tintColor = .systemBlue
+        iv.tintColor = accent
         iv.isHidden = true
         return iv
     }()
@@ -77,15 +78,16 @@ final class SpaceCell: UITableViewCell {
     }
 
     private func applySelectionStyle(_ isSelected: Bool) {
+        let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         checkmarkView.isHidden = !isSelected
-        cardView.layer.borderColor = isSelected ? UIColor.systemBlue.cgColor : UIColor.systemGray4.cgColor
+        cardView.layer.borderColor = isSelected ? accent.cgColor : UIColor.systemGray4.cgColor
         CATransaction.commit()
 
         UIView.performWithoutAnimation {
             cardView.backgroundColor = isSelected
-            ? UIColor.systemBlue.withAlphaComponent(0.07)
+            ? accent.withAlphaComponent(0.07)
             : .secondarySystemBackground
             cardView.layoutIfNeeded()
         }

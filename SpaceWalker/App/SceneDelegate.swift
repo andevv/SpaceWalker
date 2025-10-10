@@ -22,6 +22,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         
         window = UIWindow(windowScene: windowScene)
         
+//        let window = UIWindow(windowScene: windowScene)
+//        window.rootViewController = UINavigationController(rootViewController: SpaceSelectViewController())
+//        window.makeKeyAndVisible()
+//        self.window = window
+//    }
+        
+        
         // 재인증(로그아웃 후 재로그인) 필요 시 실행될 콜백 등록
         NetworkManager.shared.onRequireReauthentication = { [weak self] in
             DispatchQueue.main.async {

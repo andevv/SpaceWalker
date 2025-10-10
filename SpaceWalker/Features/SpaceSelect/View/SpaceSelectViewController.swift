@@ -52,14 +52,33 @@ final class SpaceSelectViewController: UIViewController {
 
     private let bottomBar = UIView()
     private let proceedButton: UIButton = {
+        let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
+
         var config = UIButton.Configuration.filled()
         config.title = "Space 선택"
-        config.baseBackgroundColor = .systemBlue
+        config.baseBackgroundColor = accent
         config.baseForegroundColor = .white
         config.cornerStyle = .large
+
         let btn = UIButton(configuration: config)
         btn.isEnabled = false
-        btn.alpha = 0.5
+
+        // 상태별 색상 업데이트 (alpha로 흐리지 않음)
+        btn.configurationUpdateHandler = { b in
+            var c = b.configuration ?? .filled()
+            let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
+
+            if b.isEnabled {
+                c.baseBackgroundColor = b.isHighlighted ? accent.withAlphaComponent(0.8) : accent
+                c.baseForegroundColor = .white
+            } else {
+                c.baseBackgroundColor = accent.withAlphaComponent(0.4)
+                c.baseForegroundColor = .white
+            }
+
+            b.configuration = c
+            b.alpha = 1.0 // 시각적 상태는 색으로만 표현
+        }
         return btn
     }()
 
@@ -174,7 +193,7 @@ final class SpaceSelectViewController: UIViewController {
                 owner.countLabel.text = "선택됨: \(spaces.count) / 3"
                 let enabled = !spaces.isEmpty
                 owner.proceedButton.isEnabled = enabled
-                owner.proceedButton.alpha = enabled ? 1.0 : 0.5
+                //owner.proceedButton.alpha = enabled ? 1.0 : 0.5
             }
             .disposed(by: disposeBag)
         
@@ -208,16 +227,6 @@ final class SpaceSelectViewController: UIViewController {
                 owner.tableView.deselectRow(at: indexPath, animated: false)
             }
             .disposed(by: disposeBag)
-
-//        // 버튼 탭 → root를 MainTabBarController로 교체
-//        proceedButton.rx.tap
-//            .withLatestFrom(output.selectedSpaces.map { !$0.isEmpty })
-//            .filter { $0 }
-//            .observe(on: MainScheduler.instance)
-//            .subscribe(with: self) { owner, _ in
-//                owner.switchToMainTabBar()
-//            }
-//            .disposed(by: disposeBag)
     }
 
     // MARK: - Root switch
