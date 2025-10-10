@@ -7,18 +7,33 @@
 
 import UIKit
 import SnapKit
+import RxSwift
 
 struct FeedDetailModel {
-    let image: UIImage
-    let likeCount: Int
-    let authorName: String
-    let missionTitle: String
+    var image: UIImage?
+    var imageURL: URL?
+    var likeCount: Int
+    var liked: Bool
+    var authorName: String
+    var missionTitle: String
+
+    init(image: UIImage?, likeCount: Int, liked: Bool, authorName: String, missionTitle: String, imageURL: URL? = nil) {
+        self.image = image
+        self.likeCount = likeCount
+        self.liked = liked
+        self.authorName = authorName
+        self.missionTitle = missionTitle
+        self.imageURL = imageURL
+    }
 }
 
 final class FeedDetailViewController: UIViewController {
 
     // MARK: - Dependencies
-    private let model: FeedDetailModel
+    private var model: FeedDetailModel
+    private var apiPostId: Int64?
+    private let feedRepository = FeedRepository()
+    private let disposeBag = DisposeBag()
 
     // MARK: - UI
     private let scrollView = UIScrollView()
@@ -53,12 +68,22 @@ final class FeedDetailViewController: UIViewController {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    convenience init(postId: Int) {
+        let placeholder = FeedDetailModel(image: nil, likeCount: 0, liked: false, authorName: "", missionTitle: "")
+        self.init(model: placeholder)
+        self.apiPostId = Int64(postId)
+    }
+
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         setupUI()
-        bindData()
+        if let postId = apiPostId {
+            fetchFeedDetail(postId: Int(postId))
+        } else {
+            bindData()
+        }
     }
 
     // MARK: - Setup
@@ -88,7 +113,7 @@ final class FeedDetailViewController: UIViewController {
         likeRow.alignment = .center
 
         // 하트 아이콘 찌그러짐 방지
-        likeIcon.tintColor = .systemRed
+        likeIcon.tintColor = .secondaryLabel
         likeIcon.contentMode = .scaleAspectFit
         likeIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
         likeIcon.setContentHuggingPriority(.required, for: .horizontal)
@@ -151,7 +176,7 @@ final class FeedDetailViewController: UIViewController {
         }
 
         // 미션
-        missionCaption.text = "오늘의 미션"
+        missionCaption.text = "수행한 미션"
         missionCaption.font = .systemFont(ofSize: 14, weight: .regular)
         missionCaption.textColor = .secondaryLabel
 
@@ -171,10 +196,62 @@ final class FeedDetailViewController: UIViewController {
         }
     }
 
+    private func updateLikeAppearance(liked: Bool) {
+        if liked {
+            likeIcon.image = UIImage(systemName: "heart.fill")
+            likeIcon.tintColor = .systemRed
+        } else {
+            likeIcon.image = UIImage(systemName: "heart")
+            likeIcon.tintColor = .secondaryLabel
+        }
+    }
+
     private func bindData() {
         imageView.image = model.image
         likeLabel.text = "\(model.likeCount)개의 좋아요"
         shooterName.text = model.authorName
         missionTitleLabel.text = model.missionTitle
+        updateLikeAppearance(liked: model.liked)
+
+        // Load image from URL if needed
+        if model.image == nil, let url = model.imageURL {
+            loadImage(from: url)
+        }
+    }
+
+    private func fetchFeedDetail(postId: Int) {
+        feedRepository.fetchFeedDetail(postId: postId)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] dto in
+                guard let self = self else { return }
+                let imageURL = URL(string: dto.photoUrl)
+                let updated = FeedDetailModel(
+                    image: nil,
+                    likeCount: dto.likeCount,
+                    liked: dto.liked,
+                    authorName: dto.author.nickname,
+                    missionTitle: dto.dailyMission.title,
+                    imageURL: imageURL
+                )
+                self.model = updated
+                self.bindData()
+            }, onFailure: { [weak self] error in
+                print("[FeedDetail] fetch error: \(error)")
+                self?.bindData()
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func loadImage(from url: URL) {
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self = self else { return }
+            if let data = data, let image = UIImage(data: data) {
+                DispatchQueue.main.async {
+                    self.model.image = image
+                    self.imageView.image = image
+                }
+            }
+        }
+        task.resume()
     }
 }

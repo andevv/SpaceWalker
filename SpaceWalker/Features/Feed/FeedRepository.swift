@@ -2,6 +2,21 @@ import Foundation
 import RxSwift
 import Alamofire
 
+public struct FeedDetailDTO: Decodable {
+    public struct DailyMission: Decodable { let missionId: Int; let title: String }
+    public struct Author: Decodable { let nickname: String; let profileImageUrl: String }
+
+    let postId: Int
+    let spaceId: Int
+    let spaceName: String
+    let dailyMission: DailyMission
+    let photoUrl: String
+    let author: Author
+    let likeCount: Int
+    let createdAt: String
+    let liked: Bool
+}
+
 public struct FeedResponse: Decodable {
     let page: Int
     let size: Int
@@ -29,6 +44,16 @@ final class FeedRepository {
             "/api/v1/feed",
             method: .get,
             parameters: params,
+            requiresAuth: true
+        )
+    }
+
+    func fetchFeedDetail(postId: Int) -> Single<FeedDetailDTO> {
+        let endpoint = "/api/v1/feed/\(postId)"
+        return NetworkManager.shared.request(
+            endpoint,
+            method: .get,
+            parameters: nil,
             requiresAuth: true
         )
     }

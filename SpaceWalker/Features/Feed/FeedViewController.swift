@@ -364,12 +364,7 @@ extension FeedViewController: MasonryLayoutDelegate {
 extension FeedViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let item = items[indexPath.item]
-        let detail = FeedDetailViewController(model: FeedDetailModel(
-            image: UIImage(),  // No preloaded image available
-            likeCount: 0,
-            authorName: "",
-            missionTitle: ""
-        ))
+        let detail = FeedDetailViewController(postId: item.postId)
         navigationController?.pushViewController(detail, animated: true)
     }
     
