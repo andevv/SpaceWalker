@@ -625,14 +625,16 @@ final class CalendarDetailViewController: UIViewController {
             } catch {
                 print("Realm open failed: \(error)")
             }
+            let hasLocalMeta = (localMeta != nil)
 
             let date = Self.parseServerDate(response.createdAt)
 
             // Map local metadata if available
-            var resolutionText = self.model.resolutionText
-            var fileSizeText = self.model.fileSizeText
-            var shotTimeText = self.model.shotTimeText
-            var deviceName = self.model.deviceName
+            // Default placeholders when Realm metadata is unavailable
+            var resolutionText = " - "
+            var fileSizeText = " - "
+            var shotTimeText = " - "
+            var deviceName = " - "
             var locationDisplay: String? = self.model.locationName
             var latitude: Double? = nil
             var longitude: Double? = nil
@@ -673,12 +675,14 @@ final class CalendarDetailViewController: UIViewController {
                         let image = UIImage(data: data)
                         await MainActor.run {
                             self.model.image = image
-                            // Update file size from network data
-                            let byteCount = data.count
-                            let formatter = ByteCountFormatter()
-                            formatter.allowedUnits = [.useMB, .useKB]
-                            formatter.countStyle = .file
-                            self.model.fileSizeText = formatter.string(fromByteCount: Int64(byteCount))
+                            // Update file size from network data only if we had local metadata
+                            if hasLocalMeta {
+                                let byteCount = data.count
+                                let formatter = ByteCountFormatter()
+                                formatter.allowedUnits = [.useMB, .useKB]
+                                formatter.countStyle = .file
+                                self.model.fileSizeText = formatter.string(fromByteCount: Int64(byteCount))
+                            }
                         }
                     }
                 } catch {

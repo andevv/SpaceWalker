@@ -828,27 +828,18 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
             let identifier = SpacePostIdentifier(spaceId: spaceIdForDetail, postId: postId)
 
             // Build a lightweight placeholder model to show immediately while fetching real detail
-            let missionTitle = self.missionLabel.text ?? "오늘의 미션"
-            let image = dayPhoto.image
-            let pixelW = Int(image.size.width * image.scale)
-            let pixelH = Int(image.size.height * image.scale)
-            let resolutionText = "\(pixelW) × \(pixelH)"
-            let timeDF = DateFormatter()
-            timeDF.locale = Locale(identifier: "ko_KR")
-            timeDF.dateFormat = "a h:mm"
-            let shotTimeText = timeDF.string(from: date)
             let placeholder = SpacePhotoDetailModel(
-                image: image,
+                image: dayPhoto.image,
                 date: date,
-                missionTitle: missionTitle,
+                missionTitle: self.missionLabel.text ?? "오늘의 미션",
                 isPublic: true,
                 likeCount: 0,
                 authorName: "",
                 locationName: nil,
-                deviceName: UIDevice.current.model,
-                resolutionText: resolutionText,
-                fileSizeText: "알 수 없음",
-                shotTimeText: shotTimeText
+                deviceName: " - ",
+                resolutionText: " - ",
+                fileSizeText: " - ",
+                shotTimeText: " - "
             )
             let vc = CalendarDetailViewController(identifier: identifier, placeholderModel: placeholder)
 
