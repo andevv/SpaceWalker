@@ -7,6 +7,7 @@
 
 import UIKit
 import SnapKit
+import RxSwift
 
 struct FeedItem {
     let image: UIImage
@@ -22,13 +23,16 @@ final class FeedViewController: UIViewController {
 
     // MARK: - UI
     private let chipStack = UIStackView()
+    private let chipScrollView = UIScrollView()
     private let collectionView: UICollectionView
 
     // MARK: - State
     private var items: [FeedItem] = []
-
-    private let filters = ["전체", "개인", "업무", "공부", "운동"]
-    private var selectedFilterIndex = 0
+    private var spaces: [Space] = []
+    private var selectedChipIndex = 0 // 0 = 전체, 1... = spaces indices offset by +1
+    
+    private let repository = SpaceRepository()
+    private let disposeBag = DisposeBag()
 
     // MARK: - Init
     init() {
@@ -53,29 +57,40 @@ final class FeedViewController: UIViewController {
 
         setupChips()
         setupCollectionView()
+        fetchSpaces()
         makeDummyItems()
     }
 
     // MARK: - Setup
     private func setupChips() {
-        view.addSubview(chipStack)
+        // Configure scroll view for horizontal chips
+        view.addSubview(chipScrollView)
+        chipScrollView.showsHorizontalScrollIndicator = false
+        chipScrollView.alwaysBounceHorizontal = true
+        chipScrollView.alwaysBounceVertical = false
+
+        // Add stack into scroll view
+        chipScrollView.addSubview(chipStack)
         chipStack.axis = .horizontal
         chipStack.spacing = 8
         chipStack.alignment = .fill
-        chipStack.distribution = .fillProportionally
+        chipStack.distribution = .fill // let buttons size to content
 
-        chipStack.snp.makeConstraints { make in
+        // Layout scrollView
+        chipScrollView.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).inset(12)
             make.leading.trailing.equalToSuperview().inset(16)
             make.height.equalTo(36)
         }
 
-        filters.enumerated().forEach { idx, title in
-            let b = makeChipButton(title: title, selected: idx == selectedFilterIndex)
-            b.tag = idx
-            b.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
-            chipStack.addArrangedSubview(b)
+        // Layout stack inside scrollView using contentLayoutGuide/frameLayoutGuide for horizontal scrolling
+        chipStack.snp.makeConstraints { make in
+            make.edges.equalTo(chipScrollView.contentLayoutGuide).inset(0)
+            make.height.equalTo(chipScrollView.frameLayoutGuide)
         }
+
+        // Initial build (if spaces already loaded)
+        reloadChips()
     }
 
     private func setupCollectionView() {
@@ -86,9 +101,29 @@ final class FeedViewController: UIViewController {
         collectionView.delegate = self
 
         collectionView.snp.makeConstraints { make in
-            make.top.equalTo(chipStack.snp.bottom).offset(12)
+            make.top.equalTo(chipScrollView.snp.bottom).offset(12)
             make.leading.trailing.equalToSuperview().inset(12)
             make.bottom.equalTo(view.safeAreaLayoutGuide)
+        }
+    }
+
+    private func reloadChips() {
+        // Remove existing arranged subviews
+        for sub in chipStack.arrangedSubviews { chipStack.removeArrangedSubview(sub); sub.removeFromSuperview() }
+
+        // Build "전체" chip first
+        let allButton = makeChipButton(title: "전체", selected: selectedChipIndex == 0)
+        allButton.tag = 0
+        allButton.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+        chipStack.addArrangedSubview(allButton)
+
+        // Build chips for spaces
+        for (idx, space) in spaces.enumerated() {
+            let tag = idx + 1 // offset by 1 due to "전체"
+            let b = makeChipButton(title: space.name, selected: selectedChipIndex == tag)
+            b.tag = tag
+            b.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
+            chipStack.addArrangedSubview(b)
         }
     }
 
@@ -134,11 +169,33 @@ final class FeedViewController: UIViewController {
         collectionView.reloadData()
     }
 
+    // MARK: - Networking (Spaces)
+    private func fetchSpaces() {
+        repository.fetchSpaces()
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] spaces in
+                guard let self = self else { return }
+                self.spaces = spaces
+                // Max selectable index is spaces.count (0 is "전체")
+                self.selectedChipIndex = min(self.selectedChipIndex, self.spaces.count)
+                self.reloadChips()
+            }, onFailure: { [weak self] error in
+                self?.presentErrorAlert(message: error.localizedDescription)
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func presentErrorAlert(message: String) {
+        let ac = UIAlertController(title: "오류", message: message, preferredStyle: .alert)
+        ac.addAction(UIAlertAction(title: "확인", style: .default))
+        present(ac, animated: true)
+    }
+
     // MARK: - Actions
     @objc private func chipTapped(_ sender: UIButton) {
-        selectedFilterIndex = sender.tag
+        selectedChipIndex = sender.tag
         for case let btn as UIButton in chipStack.arrangedSubviews {
-            styleChip(btn, selected: btn.tag == selectedFilterIndex)
+            styleChip(btn, selected: btn.tag == selectedChipIndex)
         }
         collectionView.reloadData()
         collectionView.collectionViewLayout.invalidateLayout() // 레이아웃 갱신
