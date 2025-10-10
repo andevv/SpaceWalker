@@ -487,8 +487,44 @@ final class CalendarDetailViewController: UIViewController {
 
     // MARK: - Actions
     @objc private func toggleVisibility(_ sender: UISwitch) {
-        model.isPublic = sender.isOn
-        applyVisibility(isPublic: sender.isOn, animated: true)
+        let newValue = sender.isOn
+        // Optimistically apply UI
+        applyVisibility(isPublic: newValue, animated: true)
+        model.isPublic = newValue
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let resp = try await self.spaceRepository
+                    .updatePostVisibility(spaceId: self.identifier.spaceId, postId: self.identifier.postId, isPublic: newValue)
+                    .value
+                if resp.success {
+                    let msg = newValue ? "공개 처리되었습니다." : "비공개 처리되었습니다."
+                    await MainActor.run {
+                        let ac = UIAlertController(title: "완료", message: msg, preferredStyle: .alert)
+                        ac.addAction(UIAlertAction(title: "확인", style: .default))
+                        self.present(ac, animated: true)
+                    }
+                } else {
+                    // Server reported failure – rollback
+                    await MainActor.run {
+                        self.model.isPublic = !newValue
+                        self.visibilitySwitch.setOn(!newValue, animated: true)
+                        self.applyVisibility(isPublic: !newValue, animated: true)
+                    }
+                }
+            } catch {
+                // Network error – rollback and notify
+                await MainActor.run {
+                    self.model.isPublic = !newValue
+                    self.visibilitySwitch.setOn(!newValue, animated: true)
+                    self.applyVisibility(isPublic: !newValue, animated: true)
+                    let ac = UIAlertController(title: "업데이트 실패", message: "공개 여부를 변경하지 못했습니다. 네트워크 상태를 확인해주세요.", preferredStyle: .alert)
+                    ac.addAction(UIAlertAction(title: "확인", style: .default))
+                    self.present(ac, animated: true)
+                }
+            }
+        }
     }
 
     @objc private func didTapDelete() {

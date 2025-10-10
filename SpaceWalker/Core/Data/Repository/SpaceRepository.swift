@@ -264,6 +264,11 @@ final class SpaceRepository {
         let success: Bool
     }
 
+    struct UpdateVisibilityResponse: Decodable {
+        let postId: Int
+        let success: Bool
+    }
+
     // MARK: - Presigned URL 발급
     func requestPresignedUpload(spaceId: Int, mimeType: String, timezone: String) -> Single<PresignedUploadResponse> {
         let endpoint = "/api/v1/space/\(spaceId)/upload"
@@ -294,6 +299,20 @@ final class SpaceRepository {
         return NetworkManager.shared.request(
             endpoint,
             method: .post,
+            parameters: params,
+            requiresAuth: true
+        )
+    }
+
+    // MARK: - 게시글 공개여부 수정
+    func updatePostVisibility(spaceId: Int, postId: Int, isPublic: Bool) -> Single<UpdateVisibilityResponse> {
+        let endpoint = "/api/v1/space/\(spaceId)/\(postId)"
+        let params: [String: Any] = [
+            "isPublic": isPublic
+        ]
+        return NetworkManager.shared.request(
+            endpoint,
+            method: .patch,
             parameters: params,
             requiresAuth: true
         )
