@@ -14,6 +14,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        // Apply accent color only to Navigation Bar and Tab Bar
+        if let accent = UIColor(named: "AccentColor_066985") {
+            // Bar button items and interactive elements on Navigation Bar
+            UINavigationBar.appearance().tintColor = accent
+            // Selected item color and interactive elements on Tab Bar
+            UITabBar.appearance().tintColor = accent
+        }
         return true
     }
 
