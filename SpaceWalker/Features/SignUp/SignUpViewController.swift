@@ -16,14 +16,16 @@ final class SignUpViewController: UIViewController {
 
     // MARK: - UI Components
     private let logoImageView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "star.fill"))
+        let iv = UIImageView(image: UIImage(named: "Logo_Wordmark2"))
+        iv.layer.cornerRadius = 12
+        iv.clipsToBounds = true
         iv.tintColor = .label
-        iv.contentMode = .scaleAspectFit
+        iv.contentMode = .scaleAspectFill
         return iv
     }()
 
     private let appleButton: ASAuthorizationAppleIDButton = {
-        let btn = ASAuthorizationAppleIDButton(type: .signIn, style: .black)
+        let btn = ASAuthorizationAppleIDButton(type: .signIn, style: .white)
         btn.cornerRadius = 12
         return btn
     }()
@@ -35,7 +37,7 @@ final class SignUpViewController: UIViewController {
     private let dotLabel: UILabel = {
         let lb = UILabel()
         lb.text = " · "
-        lb.textColor = .tertiaryLabel
+        lb.textColor = .systemGray
         lb.textAlignment = .center
         lb.font = .systemFont(ofSize: 14, weight: .regular)
         return lb
@@ -47,7 +49,7 @@ final class SignUpViewController: UIViewController {
         tv.isScrollEnabled = false
         tv.textAlignment = .center
         tv.backgroundColor = .clear
-        tv.textColor = .secondaryLabel
+        tv.textColor = .systemGray
         tv.font = .systemFont(ofSize: 10)
         tv.text = "로그인을 진행하면 서비스 이용약관 및 개인정보 처리방침에 동의한 것으로 간주됩니다."
         tv.textContainerInset = .zero
@@ -63,7 +65,7 @@ final class SignUpViewController: UIViewController {
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = UIColor(white: 1.0/255.0, alpha: 1.0) // HEX #010101
         setupLayout()
         setupLinks()
         appleButton.addTarget(self, action: #selector(startAppleLogin), for: .touchUpInside)
@@ -79,7 +81,8 @@ final class SignUpViewController: UIViewController {
         logoImageView.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide).offset(100)
             make.centerX.equalToSuperview()
-            make.width.height.equalTo(120)
+            make.width.equalTo(appleButton)
+            make.height.equalTo(150)
         }
 
         appleButton.snp.makeConstraints { make in
@@ -110,7 +113,7 @@ final class SignUpViewController: UIViewController {
         func styleLinkButton(_ b: UIButton, title: String) {
             var config = UIButton.Configuration.plain()
             config.title = title
-            config.baseForegroundColor = .secondaryLabel
+            config.baseForegroundColor = .systemGray
             config.contentInsets = .zero
             b.configuration = config
             b.titleLabel?.font = .systemFont(ofSize: 12, weight: .regular)
@@ -119,7 +122,7 @@ final class SignUpViewController: UIViewController {
                 string: title,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 12, weight: .regular),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: UIColor.systemGray,
                     .underlineStyle: NSUnderlineStyle.single.rawValue
                 ]
             )
