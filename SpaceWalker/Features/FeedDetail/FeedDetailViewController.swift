@@ -8,6 +8,7 @@
 import UIKit
 import SnapKit
 import RxSwift
+import Kingfisher
 
 struct FeedDetailModel {
     var image: UIImage?
@@ -16,14 +17,16 @@ struct FeedDetailModel {
     var liked: Bool
     var authorName: String
     var missionTitle: String
+    var authorProfileURL: URL?
 
-    init(image: UIImage?, likeCount: Int, liked: Bool, authorName: String, missionTitle: String, imageURL: URL? = nil) {
+    init(image: UIImage?, likeCount: Int, liked: Bool, authorName: String, missionTitle: String, imageURL: URL? = nil, authorProfileURL: URL? = nil) {
         self.image = image
         self.likeCount = likeCount
         self.liked = liked
         self.authorName = authorName
         self.missionTitle = missionTitle
         self.imageURL = imageURL
+        self.authorProfileURL = authorProfileURL
     }
 }
 
@@ -154,8 +157,10 @@ final class FeedDetailViewController: UIViewController {
         shooterRow.axis = .horizontal
         shooterRow.spacing = 10
 
-        shooterIcon.tintColor = .systemBlue
-        shooterIcon.contentMode = .scaleAspectFit
+        shooterIcon.layer.cornerRadius = 12
+        shooterIcon.clipsToBounds = true
+        shooterIcon.backgroundColor = .systemGray5
+        shooterIcon.contentMode = .scaleAspectFill
         shooterIcon.snp.makeConstraints { $0.width.height.equalTo(24) }
 
         shooterName.font = .systemFont(ofSize: 16, weight: .semibold)
@@ -210,6 +215,16 @@ final class FeedDetailViewController: UIViewController {
         imageView.image = model.image
         likeLabel.text = "\(model.likeCount)개의 좋아요"
         shooterName.text = model.authorName
+        
+        if let url = model.authorProfileURL {
+            let placeholder = UIImage(systemName: "person.circle")?.withRenderingMode(.alwaysTemplate)
+            shooterIcon.tintColor = .systemGray3
+            shooterIcon.kf.setImage(with: url, placeholder: placeholder)
+        } else {
+            shooterIcon.image = UIImage(systemName: "person.circle.fill")
+            shooterIcon.tintColor = .systemBlue
+        }
+        
         missionTitleLabel.text = model.missionTitle
         updateLikeAppearance(liked: model.liked)
 
@@ -231,7 +246,8 @@ final class FeedDetailViewController: UIViewController {
                     liked: dto.liked,
                     authorName: dto.author.nickname,
                     missionTitle: dto.dailyMission.title,
-                    imageURL: imageURL
+                    imageURL: imageURL,
+                    authorProfileURL: URL(string: dto.author.profileImageUrl)
                 )
                 self.model = updated
                 self.bindData()
@@ -255,3 +271,4 @@ final class FeedDetailViewController: UIViewController {
         task.resume()
     }
 }
+
