@@ -93,7 +93,13 @@ final class CalendarViewController: UIViewController {
     private let missionButton: UIButton = {
         var config = UIButton.Configuration.filled()
         config.title = "미션하러 가기"
-        config.baseBackgroundColor = .systemBlue
+        // 에셋에 있는 named color 사용
+        if let accent = UIColor(named: "AccentColor_066985") {
+            config.baseBackgroundColor = accent
+        } else {
+            // 혹시 컬러가 없을 때 대비한 기본값
+            config.baseBackgroundColor = .systemBlue
+        }
         config.baseForegroundColor = .white
         config.cornerStyle = .large
         let b = UIButton(configuration: config)
@@ -491,10 +497,19 @@ final class CalendarViewController: UIViewController {
 
     // MARK: - Actions
     @objc private func chipTapped(_ sender: UIButton) {
+        // 1) 선택 인덱스 갱신
         selectedChipIndex = sender.tag
+
+        // 2) 모든 칩의 selected 상태를 일괄 업데이트
         for case let btn as UIButton in chipStack.arrangedSubviews {
-            styleChip(btn, selected: btn.tag == selectedChipIndex)
+            let shouldSelect = (btn.tag == selectedChipIndex)
+            if btn.isSelected != shouldSelect {
+                btn.isSelected = shouldSelect
+                btn.setNeedsUpdateConfiguration() // ← configurationUpdateHandler 재적용
+            }
         }
+
+        // 3) 선택된 space로 데이터 로드
         if joinedSpaces.indices.contains(selectedChipIndex) {
             let selected = joinedSpaces[selectedChipIndex]
             logger.info("[UI] chipTapped — index=\(self.selectedChipIndex, privacy: .public), spaceId=\(selected.id, privacy: .public), name=\(selected.name, privacy: .public)")
@@ -740,28 +755,39 @@ final class CalendarViewController: UIViewController {
     private func makeChipButton(title: String, selected: Bool) -> UIButton {
         var config = UIButton.Configuration.plain()
         config.title = title
-        config.baseForegroundColor = .label
-        config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14)
+        config.contentInsets = .init(top: 8, leading: 14, bottom: 8, trailing: 14)
+        config.background = .clear()                 // 배경은 configuration로
+        config.background.cornerRadius = 16          // 배경 라운드
 
         let b = UIButton(configuration: config)
         b.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        b.layer.cornerRadius = 16
-        b.layer.borderWidth = 1
-        b.layer.borderColor = UIColor.systemGray4.cgColor
-        styleChip(b, selected: selected)
-        return b
-    }
 
-    private func styleChip(_ b: UIButton, selected: Bool) {
-        if selected {
-            b.backgroundColor = .systemBlue
-            b.setTitleColor(.white, for: .normal)
-            b.layer.borderColor = UIColor.systemBlue.cgColor
-        } else {
-            b.backgroundColor = UIColor.systemGray6
-            b.setTitleColor(.label, for: .normal)
-            b.layer.borderColor = UIColor.systemGray4.cgColor
+        // 레이어도 라운드 + 보더 (클리핑 필수)
+        b.layer.cornerRadius = 16
+        b.layer.cornerCurve = .continuous
+        b.clipsToBounds = true
+        b.layer.borderWidth = 1
+
+        let accent = UIColor(named: "AccentColor_066985") ?? .systemTeal
+
+        b.configurationUpdateHandler = { btn in
+            var c = btn.configuration ?? .plain()
+            c.background.cornerRadius = 16           // 상태 갱신 시에도 유지
+            if btn.isSelected {
+                c.baseForegroundColor = .white
+                c.background.backgroundColor = accent
+                btn.layer.borderColor = accent.cgColor
+            } else {
+                c.baseForegroundColor = .label
+                c.background.backgroundColor = .systemGray6
+                btn.layer.borderColor = UIColor.systemGray4.cgColor
+            }
+            btn.configuration = c
         }
+
+        b.isSelected = selected
+        b.setNeedsUpdateConfiguration()
+        return b
     }
 
     // MARK: - Dummy Photos (데모용)
