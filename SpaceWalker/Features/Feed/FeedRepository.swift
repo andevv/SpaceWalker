@@ -57,4 +57,36 @@ final class FeedRepository {
             requiresAuth: true
         )
     }
+
+    struct LikeResponse: Codable {
+        let postId: Int
+        let success: Bool
+    }
+
+    func updateLike(postId: Int, liked: Bool) -> Single<LikeResponse> {
+        let endpoint = "/api/v1/feed/\(postId)/like"
+        let params: [String: Any] = [
+            "liked": liked
+        ]
+        let req: Single<Data> = NetworkManager.shared.requestRawData(
+            endpoint,
+            method: .patch,
+            parameters: params,
+            requiresAuth: true
+        )
+        return req.flatMap { data -> Single<LikeResponse> in
+            // Log raw JSON (or text) response body for debugging (e.g., 500 errors)
+            if let text = String(data: data, encoding: .utf8) {
+                print("[FeedRepository] Like raw response (postId=\(postId)): \(text)")
+            } else {
+                print("[FeedRepository] Like raw response (postId=\(postId)): <non-utf8 data size=\(data.count)>")
+            }
+            do {
+                let decoded = try JSONDecoder().decode(LikeResponse.self, from: data)
+                return .just(decoded)
+            } catch {
+                return .error(error)
+            }
+        }
+    }
 }

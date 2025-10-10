@@ -42,6 +42,9 @@ final class FeedViewController: UIViewController {
     private var isLoading = false
     private let pageSize = 10
 
+    // Track in-flight like requests to prevent duplicate taps per postId
+    private var likingPostIds: Set<Int> = []
+
     // Cache measured image sizes by postId to compute dynamic heights
     private var imageSizeCache: [Int: CGSize] = [:]
     // Only items in this range are allowed to trigger layout changes (latest page)
@@ -324,14 +327,67 @@ extension FeedViewController: UICollectionViewDataSource {
 
         cell.onLikeTapped = { [weak self, weak cell] in
             guard let self = self else { return }
-            self.items[indexPath.item].isLiked.toggle()
+            let idx = indexPath.item
+            guard idx < self.items.count else { return }
+            let postId = self.items[idx].postId
+
+            // Prevent duplicate like requests for the same post
+            if self.likingPostIds.contains(postId) { return }
+            self.likingPostIds.insert(postId)
+
+            // Optimistic update
+            let previous = self.items[idx].isLiked
+            self.items[idx].isLiked.toggle()
+
+            // Reflect UI immediately
             if let c = cell {
-                let updated = self.items[indexPath.item]
+                let updated = self.items[idx]
                 let placeholder = UIImage(systemName: "photo")?.withTintColor(.secondarySystemBackground, renderingMode: .alwaysOriginal)
                 c.configure(url: updated.photoURL, liked: updated.isLiked, placeholder: placeholder)
             } else {
                 self.collectionView.reloadItems(at: [indexPath])
             }
+
+            // Fire API
+            self.feedRepository.updateLike(postId: postId, liked: self.items[idx].isLiked)
+                .observe(on: MainScheduler.instance)
+                .subscribe(onSuccess: { [weak self] resp in
+                    guard let self = self else { return }
+                    self.likingPostIds.remove(postId)
+                    // Log server JSON response body
+                    if let data = try? JSONEncoder().encode(resp),
+                       let json = String(data: data, encoding: .utf8) {
+                        self.logger.info("[Feed] like response JSON — postId=\(postId), body=\(json, privacy: .public)")
+                    } else {
+                        self.logger.info("[Feed] like response (unencodable) — postId=\(postId)")
+                    }
+                    if resp.postId != postId || resp.success == false {
+                        // Rollback if server response mismatched
+                        self.items[idx].isLiked = previous
+                        if let c = cell {
+                            let updated = self.items[idx]
+                            let placeholder = UIImage(systemName: "photo")?.withTintColor(.secondarySystemBackground, renderingMode: .alwaysOriginal)
+                            c.configure(url: updated.photoURL, liked: updated.isLiked, placeholder: placeholder)
+                        } else {
+                            self.collectionView.reloadItems(at: [indexPath])
+                        }
+                        self.presentErrorAlert(message: "좋아요 처리에 실패했습니다. 다시 시도해 주세요.")
+                    }
+                }, onFailure: { [weak self] error in
+                    guard let self = self else { return }
+                    self.likingPostIds.remove(postId)
+                    // Rollback UI
+                    self.items[idx].isLiked = previous
+                    if let c = cell {
+                        let updated = self.items[idx]
+                        let placeholder = UIImage(systemName: "photo")?.withTintColor(.secondarySystemBackground, renderingMode: .alwaysOriginal)
+                        c.configure(url: updated.photoURL, liked: updated.isLiked, placeholder: placeholder)
+                    } else {
+                        self.collectionView.reloadItems(at: [indexPath])
+                    }
+                    self.presentErrorAlert(message: error.localizedDescription)
+                })
+                .disposed(by: self.disposeBag)
         }
         cell.onReportTapped = { [weak self] in
             let ac = UIAlertController(title: "신고하기",
