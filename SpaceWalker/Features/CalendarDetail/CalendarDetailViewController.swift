@@ -204,13 +204,20 @@ final class CalendarDetailViewController: UIViewController {
         // Like row
         likeRow.axis = .horizontal
         likeRow.spacing = 8
+        likeRow.alignment = .center
+        likeRow.distribution = .fill
         likeIcon.tintColor = .systemRed
         likeIcon.contentMode = .scaleAspectFit
         likeLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         likeLabel.textColor = .label
 
         contentView.addSubview(likeRow)
-        [likeIcon, likeLabel].forEach { likeRow.addArrangedSubview($0) }
+        let likeSpacer = UIView()
+        likeSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        likeSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        likeRow.addArrangedSubview(likeIcon)
+        likeRow.addArrangedSubview(likeLabel)
+        likeRow.addArrangedSubview(likeSpacer)
         likeRow.snp.makeConstraints { make in
             make.top.equalTo(divider1.snp.bottom).offset(14)
             make.leading.trailing.equalToSuperview().inset(20)
@@ -275,7 +282,8 @@ final class CalendarDetailViewController: UIViewController {
         contentView.addSubview(shooterName)
 
         shooterIcon.tintColor = .secondaryLabel
-        shooterIcon.contentMode = .scaleAspectFit
+        shooterIcon.contentMode = .scaleAspectFill
+        shooterIcon.clipsToBounds = true
         shooterName.font = .systemFont(ofSize: 16, weight: .semibold)
         shooterName.textColor = .label
 
@@ -585,10 +593,23 @@ final class CalendarDetailViewController: UIViewController {
                 }
             }
 
+            // Fetch and set author's profile image
+            if let profileImage = await self.fetchImage(from: response.author.profileImageUrl) {
+                await MainActor.run {
+                    self.shooterIcon.image = profileImage
+                }
+            }
+
             await MainActor.run { self.bindData() }
         } catch {
             print("Failed to fetch post detail: \(error)")
         }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Make shooter icon circular
+        shooterIcon.layer.cornerRadius = shooterIcon.bounds.width / 2
     }
 
     // MARK: - Date Parsing Helpers
