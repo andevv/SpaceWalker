@@ -224,8 +224,11 @@ final class CalendarViewController: UIViewController {
             make.height.equalTo(24)
         }
 
+        let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
         prevButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         nextButton.setImage(UIImage(systemName: "chevron.right"), for: .normal)
+        prevButton.tintColor = accent
+        nextButton.tintColor = accent
         prevButton.snp.makeConstraints { make in
             make.leading.centerY.equalToSuperview()
             make.width.height.equalTo(24)
@@ -768,7 +771,7 @@ final class CalendarViewController: UIViewController {
         b.clipsToBounds = true
         b.layer.borderWidth = 1
 
-        let accent = UIColor(named: "AccentColor_066985") ?? .systemTeal
+        let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
 
         b.configurationUpdateHandler = { btn in
             var c = btn.configuration ?? .plain()
