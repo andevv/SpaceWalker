@@ -10,11 +10,10 @@ import SnapKit
 import RxSwift
 
 struct FeedItem {
-    let image: UIImage
+    let postId: Int
+    let photoURL: URL
+    var image: UIImage?
     var isLiked: Bool
-    var likeCount: Int
-    let authorName: String
-    let missionTitle: String
 }
 
 final class FeedViewController: UIViewController {
@@ -32,7 +31,13 @@ final class FeedViewController: UIViewController {
     private var selectedChipIndex = 0 // 0 = 전체, 1... = spaces indices offset by +1
     
     private let repository = SpaceRepository()
+    private let feedRepository = FeedRepository()
     private let disposeBag = DisposeBag()
+    
+    private var currentPage = 1
+    private var totalPages = 1
+    private var isLoading = false
+    private let pageSize = 20
 
     // MARK: - Init
     init() {
@@ -58,7 +63,6 @@ final class FeedViewController: UIViewController {
         setupChips()
         setupCollectionView()
         fetchSpaces()
-        makeDummyItems()
     }
 
     // MARK: - Setup
@@ -125,48 +129,9 @@ final class FeedViewController: UIViewController {
             b.addTarget(self, action: #selector(chipTapped(_:)), for: .touchUpInside)
             chipStack.addArrangedSubview(b)
         }
-    }
-
-    // MARK: - Data
-    private func makeDummyItems() {
-        // 다양한 비율의 단색 이미지 만들기
-        func colorImage(_ color: UIColor, size: CGSize) -> UIImage {
-            let rect = CGRect(origin: .zero, size: size)
-            UIGraphicsBeginImageContextWithOptions(rect.size, true, 0)
-            color.setFill(); UIRectFill(rect)
-            let img = UIGraphicsGetImageFromCurrentImageContext()!
-            UIGraphicsEndImageContext()
-            return img
-        }
-
-        let sizes: [CGSize] = [
-            CGSize(width: 300, height: 180),  // 가로형
-            CGSize(width: 300, height: 420),  // 세로형
-            CGSize(width: 300, height: 300),  // 정방형
-            CGSize(width: 300, height: 220),
-            CGSize(width: 300, height: 460),
-            CGSize(width: 300, height: 260),
-            CGSize(width: 300, height: 360),
-            CGSize(width: 300, height: 190)
-        ]
-        let colors: [UIColor] = [.systemBlue, .systemTeal, .systemGreen, .systemOrange,
-                                 .systemPink, .systemPurple, .systemRed, .brown]
-        let authors = ["김철수", "이영희", "박민수", "최지훈", "김민지", "정다은", "오세훈", "장유나"]
-        let missions = ["자연 풍경 감상하기", "업무 공간 정리", "독서 기록", "운동 루틴",
-                        "아트 작품", "여행 추억", "요리 레시피", "개발 프로젝트"]
-
-        items = (0..<8).map { i in
-            let size = sizes[i % sizes.count]
-            let color = colors[i % colors.count]
-            return FeedItem(
-                image: colorImage(color, size: size),
-                isLiked: Bool.random(),
-                likeCount: Int.random(in: 20...300),
-                authorName: authors[i % authors.count],
-                missionTitle: missions[i % missions.count]
-            )
-        }
-        collectionView.reloadData()
+        
+        // Reload feed when chips are (re)built to reflect current selection
+        loadFeed(reset: true)
     }
 
     // MARK: - Networking (Spaces)
@@ -191,14 +156,75 @@ final class FeedViewController: UIViewController {
         present(ac, animated: true)
     }
 
+    // MARK: - Networking (Feed)
+    private func loadFeed(reset: Bool) {
+        if isLoading { return }
+        isLoading = true
+
+        // Determine selected spaceId (0 = 전체)
+        let selectedSpaceId: Int? = (selectedChipIndex == 0) ? nil : spaces[selectedChipIndex - 1].id
+        let nextPage = reset ? 1 : (currentPage + 1)
+
+        feedRepository.fetchFeed(spaceId: selectedSpaceId, page: nextPage, size: pageSize)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] resp in
+                guard let self = self else { return }
+
+                self.currentPage = resp.page
+                self.totalPages = resp.totalPages
+
+                if reset { self.items.removeAll() }
+
+                let newItems: [FeedItem] = resp.posts.compactMap { dto in
+                    guard let url = URL(string: dto.photoUrl) else { return nil }
+                    return FeedItem(postId: dto.postId, photoURL: url, image: nil, isLiked: dto.liked)
+                }
+                self.items.append(contentsOf: newItems)
+                self.collectionView.reloadData()
+
+                // Prefetch images for newly added items
+                self.prefetchImages(for: newItems, startingAt: self.items.count - newItems.count)
+
+                self.isLoading = false
+            }, onFailure: { [weak self] error in
+                self?.isLoading = false
+                self?.presentErrorAlert(message: error.localizedDescription)
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func prefetchImages(for items: [FeedItem], startingAt startIndex: Int) {
+        let indices = (0..<items.count).map { startIndex + $0 }
+        for i in indices {
+            guard self.items.indices.contains(i) else { continue }
+            if self.items[i].image != nil { continue }
+            let url = self.items[i].photoURL
+            URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+                guard let self = self else { return }
+                if let data, let image = UIImage(data: data) {
+                    DispatchQueue.main.async {
+                        if self.items.indices.contains(i) {
+                            self.items[i].image = image
+                            // Reload just that item and invalidate layout to reflect correct aspect ratio
+                            self.collectionView.reloadItems(at: [IndexPath(item: i, section: 0)])
+                            self.collectionView.collectionViewLayout.invalidateLayout()
+                        }
+                    }
+                }
+            }.resume()
+        }
+    }
+
     // MARK: - Actions
     @objc private func chipTapped(_ sender: UIButton) {
         selectedChipIndex = sender.tag
         for case let btn as UIButton in chipStack.arrangedSubviews {
             styleChip(btn, selected: btn.tag == selectedChipIndex)
         }
-        collectionView.reloadData()
-        collectionView.collectionViewLayout.invalidateLayout() // 레이아웃 갱신
+        // Reset and load first page for the selected filter
+        currentPage = 0
+        totalPages = 1
+        loadFeed(reset: true)
     }
 
     private func makeChipButton(title: String, selected: Bool) -> UIButton {
@@ -239,13 +265,22 @@ extension FeedViewController: UICollectionViewDataSource {
             for: indexPath
         ) as! FeedCell
         let item = items[indexPath.item]
-        cell.configure(with: item)
+        if let image = item.image {
+            cell.configure(with: FeedItem(postId: item.postId, photoURL: item.photoURL, image: image, isLiked: item.isLiked))
+        } else {
+            // lightweight placeholder while loading
+            let placeholder = UIImage(systemName: "photo")!.withTintColor(.secondarySystemBackground, renderingMode: .alwaysOriginal)
+            cell.configure(with: FeedItem(postId: item.postId, photoURL: item.photoURL, image: placeholder, isLiked: item.isLiked))
+            // If near the end or image missing, ensure prefetch is active
+            prefetchImages(for: [item], startingAt: indexPath.item)
+        }
 
         cell.onLikeTapped = { [weak self, weak cell] in
             guard let self = self else { return }
             self.items[indexPath.item].isLiked.toggle()
             if let c = cell {
-                c.configure(with: self.items[indexPath.item])
+                let updated = self.items[indexPath.item]
+                c.configure(with: FeedItem(postId: updated.postId, photoURL: updated.photoURL, image: updated.image, isLiked: updated.isLiked))
             } else {
                 self.collectionView.reloadItems(at: [indexPath])
             }
@@ -267,12 +302,16 @@ extension FeedViewController: MasonryLayoutDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         heightForItemAt indexPath: IndexPath,
                         with width: CGFloat) -> CGFloat {
-        // 이미지 비율대로 셀 높이 계산
         let item = items[indexPath.item]
-        let size = item.image.size
-        guard size.width > 0 else { return width } // fallback
-        let aspect = size.height / size.width
-        return width * aspect
+        if let img = item.image {
+            let size = img.size
+            guard size.width > 0 else { return width * (4.0/3.0) }
+            let aspect = size.height / size.width
+            return width * aspect
+        } else {
+            // Placeholder ratio until image loads
+            return width * (4.0/3.0)
+        }
     }
 }
 
@@ -281,11 +320,21 @@ extension FeedViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let item = items[indexPath.item]
         let detail = FeedDetailViewController(model: FeedDetailModel(
-            image: item.image,
-            likeCount: item.likeCount,
-            authorName: item.authorName,
-            missionTitle: item.missionTitle
+            image: item.image ?? UIImage(),
+            likeCount: 0,
+            authorName: "",
+            missionTitle: ""
         ))
         navigationController?.pushViewController(detail, animated: true)
+    }
+    
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let offsetY = scrollView.contentOffset.y
+        let contentHeight = scrollView.contentSize.height
+        let height = scrollView.bounds.size.height
+        // Trigger when user scrolls near bottom and there are more pages
+        if offsetY > contentHeight - height * 1.5, !isLoading, currentPage < totalPages {
+            loadFeed(reset: false)
+        }
     }
 }
