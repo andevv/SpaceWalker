@@ -17,6 +17,8 @@ struct FeedItem {
 }
 
 final class FeedViewController: UIViewController {
+    
+    let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
 
     // MARK: - UI
     private let chipStack = UIStackView()
@@ -156,9 +158,9 @@ final class FeedViewController: UIViewController {
 
     private func styleChip(_ b: UIButton, selected: Bool) {
         if selected {
-            b.backgroundColor = .systemBlue
+            b.backgroundColor = accent
             b.setTitleColor(.white, for: .normal)
-            b.layer.borderColor = UIColor.systemBlue.cgColor
+            b.layer.borderColor = accent.cgColor
         } else {
             b.backgroundColor = .systemGray6
             b.setTitleColor(.label, for: .normal)
