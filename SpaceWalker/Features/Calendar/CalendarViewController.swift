@@ -39,6 +39,7 @@ final class CalendarViewController: UIViewController {
         let v = UIProgressView(progressViewStyle: .default)
         v.isHidden = true
         v.progress = 0
+        v.progressTintColor = UIColor(named: "AccentColor_066985") ?? .systemBlue
         return v
     }()
 
@@ -1043,11 +1044,11 @@ extension CalendarViewController {
                 if success {
                     // Realm persistence is deferred until upload succeeds (we only save to Photos here)
 
-                    let ac = UIAlertController(title: "저장 완료",
-                                               message: location != nil ? "위치가 포함되었습니다." : "위치 없이 저장되었습니다.",
-                                               preferredStyle: .alert)
-                    ac.addAction(UIAlertAction(title: "확인", style: .default))
-                    self.present(ac, animated: true)
+//                    let ac = UIAlertController(title: "저장 완료",
+//                                               message: location != nil ? "위치가 포함되었습니다." : "위치 없이 저장되었습니다.",
+//                                               preferredStyle: .alert)
+//                    ac.addAction(UIAlertAction(title: "확인", style: .default))
+//                    self.present(ac, animated: true)
                 } else {
                     let ac = UIAlertController(title: "저장 실패",
                                                message: error?.localizedDescription ?? "사진을 저장하지 못했습니다.",
