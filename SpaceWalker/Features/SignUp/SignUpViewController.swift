@@ -16,11 +16,11 @@ final class SignUpViewController: UIViewController {
 
     // MARK: - UI Components
     private let logoImageView: UIImageView = {
-        let iv = UIImageView(image: UIImage(named: "Logo_Wordmark2"))
+        let iv = UIImageView(image: UIImage(named: "Logo_Wordmark3"))
         iv.layer.cornerRadius = 12
         iv.clipsToBounds = true
         iv.tintColor = .label
-        iv.contentMode = .scaleAspectFill
+        iv.contentMode = .scaleAspectFit
         return iv
     }()
 
