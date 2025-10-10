@@ -9,7 +9,44 @@ import Foundation
 import RxSwift
 import Alamofire
 
+// MARK: - Post Detail DTOs
+struct DailyMissionDTO: Decodable {
+    let missionId: Int
+    let title: String
+}
+
+struct AuthorDTO: Decodable {
+    let userId: Int
+    let nickname: String
+    let profileImageUrl: String
+}
+
+struct SpacePostDetailResponse: Decodable {
+    let postId: Int
+    let spaceId: Int
+    let spaceName: String
+    let dailyMission: DailyMissionDTO
+    let photoUrl: String
+    let s3objectKey: String
+    let author: AuthorDTO
+    let likeCount: Int
+    let isPublic: Bool
+    let createdAt: String
+    let liked: Bool
+}
+
 final class SpaceRepository {
+    
+    // MARK: - 게시글 상세 조회
+    func fetchPostDetail(spaceId: Int, postId: Int) -> Single<SpacePostDetailResponse> {
+        let endpoint = "/api/v1/space/\(spaceId)/\(postId)"
+        return NetworkManager.shared.request(
+            endpoint,
+            method: .get,
+            parameters: nil,
+            requiresAuth: true
+        )
+    }
     
     // MARK: - 사용자의 특정 Space 상태 상세조회
     func fetchSpaceActivities(spaceId: Int, year: Int, month: Int, timezone: String) -> Single<SpaceActivityResponse> {
@@ -228,9 +265,12 @@ final class SpaceRepository {
     }
 
     // MARK: - Presigned URL 발급
-    func requestPresignedUpload(spaceId: Int, mimeType: String) -> Single<PresignedUploadResponse> {
+    func requestPresignedUpload(spaceId: Int, mimeType: String, timezone: String) -> Single<PresignedUploadResponse> {
         let endpoint = "/api/v1/space/\(spaceId)/upload"
-        let params: [String: Any] = ["mimeType": mimeType]
+        let params: [String: Any] = [
+            "mimeType": mimeType,
+            "timezone": timezone
+        ]
         return NetworkManager.shared.request(
             endpoint,
             method: .get,
@@ -240,7 +280,7 @@ final class SpaceRepository {
     }
 
     // MARK: - 미션 제출
-    func submitMission(spaceId: Int, s3objectKey: String, dailyMission: DailyMissionSubmit, isPublic: Bool = true) -> Single<SubmitMissionResponse> {
+    func submitMission(spaceId: Int, s3objectKey: String, dailyMission: DailyMissionSubmit, isPublic: Bool = true, timezone: String) -> Single<SubmitMissionResponse> {
         let endpoint = "/api/v1/space/\(spaceId)/submit"
         let params: [String: Any] = [
             "s3objectKey": s3objectKey,
@@ -248,7 +288,8 @@ final class SpaceRepository {
                 "missionId": dailyMission.missionId,
                 "title": dailyMission.title
             ],
-            "isPublic": isPublic
+            "isPublic": isPublic,
+            "timezone": timezone
         ]
         return NetworkManager.shared.request(
             endpoint,
@@ -258,3 +299,4 @@ final class SpaceRepository {
         )
     }
 }
+

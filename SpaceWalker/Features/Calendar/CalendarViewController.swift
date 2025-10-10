@@ -134,8 +134,12 @@ final class CalendarViewController: UIViewController {
     // Decoded image cache for the current app session (lightweight)
     private let imageCache = NSCache<NSString, UIImage>()
 
-    /// 현재 페이지(월)의 날짜별 썸네일
-    private var photos: [Date: UIImage] = [:]
+    /// 현재 페이지(월)의 날짜별 썸네일 + 게시물 식별자
+    private struct DayPhoto {
+        let image: UIImage
+        let postId: Int
+    }
+    private var photos: [Date: DayPhoto] = [:]
     private let cal = Calendar.current
 
     // [Location+Save] 위치 권한/값
@@ -347,7 +351,7 @@ final class CalendarViewController: UIViewController {
                 // 활동 날짜별 썸네일 맵핑 (병렬 다운로드 + 일괄 갱신)
                 let expectedKey = fetchKey // 캡처: non-optional key
                 let group = DispatchGroup()
-                var resultMap: [Date: UIImage] = [:]
+                var resultMap: [Date: DayPhoto] = [:]
                 let resultQueue = DispatchQueue(label: "calendar.photos.result", attributes: .concurrent)
 
                 for activity in response.activities {
@@ -358,7 +362,11 @@ final class CalendarViewController: UIViewController {
                     let dayKeyString = "space:\(spaceId)|day:\(self.dayString(for: self.cal.startOfDay(for: utcDate)))"
                     if let cached = self.imageCache.object(forKey: dayKeyString as NSString) {
                         // 캐시 적중: 결과에 즉시 반영하고 다운로드 생략
-                        resultQueue.async(flags: .barrier) { resultMap[self.cal.startOfDay(for: utcDate)] = cached }
+                        let localDay = self.cal.startOfDay(for: utcDate)
+                        // 활동의 postId를 안전하게 언랩하여 DayPhoto로 저장 (캐시 이미지를 활용)
+                        resultQueue.async(flags: .barrier) {
+                            resultMap[localDay] = DayPhoto(image: cached, postId: activity.postId)
+                        }
                         self.logger.debug("[Cache] hit — key=\(dayKeyString, privacy: .public)")
                         continue
                     }
@@ -375,8 +383,9 @@ final class CalendarViewController: UIViewController {
                             // 캐시에 저장 후 결과 반영 (동시 접근 보호)
                             let key = "space:\(spaceId)|day:\(self.dayString(for: localDay))"
                             self.imageCache.setObject(image, forKey: key as NSString)
+                            // 활동의 postId를 안전하게 언랩하여 DayPhoto로 저장
                             resultQueue.async(flags: .barrier) {
-                                resultMap[localDay] = image
+                                resultMap[localDay] = DayPhoto(image: image, postId: activity.postId)
                             }
                             self.logger.debug("[Image] download success — mappedLocalDay=\(localDay as NSDate, privacy: .public), cacheKey=\(key, privacy: .public)")
                         } else {
@@ -743,7 +752,7 @@ final class CalendarViewController: UIViewController {
         photos.removeAll()
         for d in [1,3,5,8,12,15,18,20,22,25,27,30] {
             if let date = dateFor(day: d, in: page) {
-                photos[date] = colorImage(color)
+                photos[date] = DayPhoto(image: colorImage(color), postId: 0)
             }
         }
     }
@@ -773,7 +782,7 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
 
         let dimmed = (position != .current)
         let selected = (selectedDate != nil) && cal.isDate(selectedDate!, inSameDayAs: date)
-        let image = photos.first { cal.isDate($0.key, inSameDayAs: date) }?.value
+        let image = photos.first { cal.isDate($0.key, inSameDayAs: date) }?.value.image
         cell.configure(day: day, image: image, selected: selected, dimmed: dimmed)
         return cell
     }
@@ -791,36 +800,36 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
             }
         }
 
-        // 1) 해당 날짜에 사진이 있으면 → 상세 모달 표시
-        if let image = photos.first(where: { cal.isDate($0.key, inSameDayAs: date) })?.value {
+        // 1) 해당 날짜에 사진이 있으면 → 상세 모달 표시 (실제 postId 사용)
+        if let dayPhoto = photos.first(where: { cal.isDate($0.key, inSameDayAs: date) })?.value {
+            let postId = dayPhoto.postId
+            let spaceIdForDetail = (self.joinedSpaces.indices.contains(self.selectedChipIndex)) ? self.joinedSpaces[self.selectedChipIndex].id : 0
+            let identifier = SpacePostIdentifier(spaceId: spaceIdForDetail, postId: postId)
 
-            // 해상도(픽셀 단위) 계산
+            // Build a lightweight placeholder model to show immediately while fetching real detail
+            let missionTitle = self.missionLabel.text ?? "오늘의 미션"
+            let image = dayPhoto.image
             let pixelW = Int(image.size.width * image.scale)
             let pixelH = Int(image.size.height * image.scale)
             let resolutionText = "\(pixelW) × \(pixelH)"
-
-            // 시간 텍스트
-            let tf = DateFormatter()
-            tf.locale = Locale(identifier: "ko_KR")
-            tf.dateFormat = "a h:mm"
-            let shotTime = tf.string(from: date)
-
-            // 상세 모델 구성 (데모 값)
-            let model = SpacePhotoDetailModel(
+            let timeDF = DateFormatter()
+            timeDF.locale = Locale(identifier: "ko_KR")
+            timeDF.dateFormat = "a h:mm"
+            let shotTimeText = timeDF.string(from: date)
+            let placeholder = SpacePhotoDetailModel(
                 image: image,
                 date: date,
-                missionTitle: "자연 풍경 감상하기",
+                missionTitle: missionTitle,
                 isPublic: true,
-                likeCount: 42,
-                authorName: "김철수",
-                locationName: "북한산",
-                deviceName: UIDevice.current.name,
+                likeCount: 0,
+                authorName: "",
+                locationName: nil,
+                deviceName: UIDevice.current.model,
                 resolutionText: resolutionText,
-                fileSizeText: "—",
-                shotTimeText: shotTime
+                fileSizeText: "알 수 없음",
+                shotTimeText: shotTimeText
             )
-
-            let vc = CalendarDetailViewController(model: model)
+            let vc = CalendarDetailViewController(identifier: identifier, placeholderModel: placeholder)
 
             // 삭제 시 달력 썸네일 제거 후 갱신
             vc.onDelete = { [weak self] in
@@ -1309,7 +1318,7 @@ extension CalendarViewController {
         activityIndicator.startAnimating()
 
         let requestStart = Date()
-        repository.requestPresignedUpload(spaceId: spaceId, mimeType: mimeType)
+        repository.requestPresignedUpload(spaceId: spaceId, mimeType: mimeType, timezone: TimeZone.current.identifier)
             .flatMap { [weak self] (resp: SpaceRepository.PresignedUploadResponse) -> Single<SpaceRepository.SubmitMissionResponse> in
                 guard let self = self else { return .error(NSError(domain: "CalendarVC", code: -1)) }
                 let uploadURLString = resp.mainImageUrl
@@ -1353,7 +1362,7 @@ extension CalendarViewController {
                                 
                                 // Proceed to submit mission
                                 let daily = SpaceRepository.DailyMissionSubmit(missionId: self.currentDailyMissionId ?? 1, title: missionTitle)
-                                self.repository.submitMission(spaceId: spaceId, s3objectKey: resp.mainImageKey, dailyMission: daily, isPublic: true)
+                                self.repository.submitMission(spaceId: spaceId, s3objectKey: resp.mainImageKey, dailyMission: daily, isPublic: true, timezone: TimeZone.current.identifier)
                                     .subscribe(onSuccess: { submitResp in
                                         single(.success(submitResp))
                                     }, onFailure: { err in

@@ -20,6 +20,7 @@ struct MissionDTO: Decodable {
 }
 
 struct ActivityDTO: Decodable {
+    let postId: Int
     let date: String // UTC 문자열
     let photo: String
     let mission: MissionDTO
