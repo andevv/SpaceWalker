@@ -38,7 +38,8 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         let v = UIView()
         v.isUserInteractionEnabled = false
         v.layer.borderWidth = 2
-        v.layer.borderColor = UIColor.systemBlue.cgColor
+        let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
+        v.layer.borderColor = accent.cgColor
         v.layer.cornerRadius = 12
         v.isHidden = true
         return v
@@ -109,7 +110,8 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         }()
 
         if isToday {
-            dayBadge.backgroundColor = .systemBlue
+            let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
+            dayBadge.backgroundColor = accent
             dayBadge.textColor = .white
             dayBadge.layer.borderColor = UIColor.clear.cgColor
         } else {
