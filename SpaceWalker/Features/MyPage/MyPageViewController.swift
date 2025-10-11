@@ -14,6 +14,7 @@ import Alamofire
 import PhotosUI
 import UniformTypeIdentifiers
 import ImageIO
+import RealmSwift
 
 final class MyPageViewController: UIViewController {
 
@@ -37,6 +38,9 @@ final class MyPageViewController: UIViewController {
         let s3Url: String
     }
     private struct ProfileUpdatedResponse: Decodable {
+        let success: Bool
+    }
+    private struct WithdrawResponse: Decodable {
         let success: Bool
     }
 
@@ -474,7 +478,7 @@ final class MyPageViewController: UIViewController {
         // No-op here; actual upload is triggered from picker delegate after detection.
     }
 
-    // MARK: - 더미 회원탈퇴 로직
+    // MARK: - 회원탈퇴 로직
     @objc private func didTapWithdraw() {
         let alert = UIAlertController(
             title: "회원탈퇴",
@@ -483,46 +487,110 @@ final class MyPageViewController: UIViewController {
         )
         alert.addAction(UIAlertAction(title: "취소", style: .cancel))
         alert.addAction(UIAlertAction(title: "탈퇴", style: .destructive, handler: { _ in
-            self.performDummyWithdrawal()
+            self.performWithdrawal()
         }))
         present(alert, animated: true)
     }
 
-    private func performDummyWithdrawal() {
-        // 1. 탈퇴 처리 중 로딩 시뮬레이션
+    private func performWithdrawal() {
+        // 1. 로딩 표시
         let loading = UIAlertController(title: nil, message: "탈퇴 처리 중...", preferredStyle: .alert)
         present(loading, animated: true)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            loading.dismiss(animated: true) {
-                // 2. 로컬 데이터 초기화 시뮬레이션
-                UserDefaults.standard.removePersistentDomain(forName: Bundle.main.bundleIdentifier!)
-                UserDefaults.standard.synchronize()
+        // 2. API 호출: DELETE /api/v1/user/withdraw (Authorization 필요)
+        let req: Single<WithdrawResponse> = NetworkManager.shared
+            .request("/api/v1/user/withdraw", method: .delete, parameters: nil, requiresAuth: true)
 
-                // 3. 완료 메시지
-                let success = UIAlertController(
-                    title: "탈퇴 완료",
-                    message: "회원탈퇴가 완료되었습니다.",
-                    preferredStyle: .alert
-                )
-                success.addAction(UIAlertAction(title: "확인", style: .default, handler: { _ in
-                    // 로그인 화면으로 이동 (root 변경)
-                    let signUpVC = SignUpViewController()
-                    let nav = UINavigationController(rootViewController: signUpVC)
-                    nav.modalPresentationStyle = .fullScreen
+        req
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] (response: WithdrawResponse) in
+                guard let self = self else { return }
+                loading.dismiss(animated: true) {
+                    if response.success {
+                        // 모든 데이터/캐시 정리 후 루트 전환
+                        self.clearAllAppData {
+                            // SignUp으로 루트 전환
+                            let signUpVC = SignUpViewController()
+                            let nav = UINavigationController(rootViewController: signUpVC)
+                            nav.modalPresentationStyle = .fullScreen
 
-                    // 최신 방식: UIWindowScene → window 접근
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                       let window = scene.windows.first {
-                        window.rootViewController = nav
-                        window.makeKeyAndVisible()
+                            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                               let window = scene.windows.first {
+                                UIView.transition(with: window, duration: 0.35, options: .transitionCrossDissolve, animations: {
+                                    window.rootViewController = nav
+                                }) { _ in
+                                    window.makeKeyAndVisible()
+                                }
+                            } else {
+                                self.present(nav, animated: true)
+                            }
+                        }
                     } else {
-                        // 혹시 모를 예외 (Scene 미사용 시)
-                        self.present(nav, animated: true)
+                        let ac = UIAlertController(title: "탈퇴 실패", message: "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.", preferredStyle: .alert)
+                        ac.addAction(UIAlertAction(title: "확인", style: .default))
+                        self.present(ac, animated: true)
                     }
-                }))
-                self.present(success, animated: true)
+                }
+            }, onFailure: { [weak self] (error: Error) in
+                guard let self = self else { return }
+                loading.dismiss(animated: true) {
+                    let ac = UIAlertController(title: "탈퇴 실패", message: error.localizedDescription, preferredStyle: .alert)
+                    ac.addAction(UIAlertAction(title: "확인", style: .default))
+                    self.present(ac, animated: true)
+                }
+            })
+            .disposed(by: disposeBag)
+    }
+
+    /// Clear UserDefaults, URLCache, Kingfisher caches, temporary files, and Realm data/files
+    private func clearAllAppData(completion: @escaping () -> Void) {
+        // 1) Clear UserDefaults (except system-managed keys)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleID)
+            UserDefaults.standard.synchronize()
+        }
+        // Ensure session store is also cleared explicitly
+        UserSessionStore.shared.clearSession()
+        UserDefaults.standard.removeObject(forKey: "apple_user_id")
+
+        // 2) Clear URLCache (default session)
+        URLCache.shared.removeAllCachedResponses()
+
+        // 3) Clear Kingfisher caches (memory + disk)
+        let cache = KingfisherManager.shared.cache
+        cache.clearMemoryCache()
+
+        // We'll clear disk cache and after that proceed to file system clean + Realm cleanup
+        cache.clearDiskCache { [weak self] in
+            guard let self = self else { return }
+
+            // 4) Remove Caches and tmp directory contents (best-effort)
+            let fm = FileManager.default
+            if let cachesURL = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+                try? fm.removeItem(at: cachesURL)
             }
+            let tmpPath = NSTemporaryDirectory()
+            if let tmpURL = URL(string: "file://" + tmpPath) {
+                try? fm.removeItem(at: tmpURL)
+            }
+
+            // 5) Realm: delete all objects and try removing realm files
+            do {
+                let realm = try Realm()
+                try realm.write { realm.deleteAll() }
+                if let url = realm.configuration.fileURL {
+                    let aux = [url,
+                               url.appendingPathExtension("lock"),
+                               url.appendingPathExtension("note"),
+                               url.deletingPathExtension().appendingPathExtension("management")]
+                    for u in aux { try? fm.removeItem(at: u) }
+                }
+            } catch {
+                // Ignore errors during cleanup
+                print("Realm cleanup error: \(error.localizedDescription)")
+            }
+
+            completion()
         }
     }
 
@@ -601,4 +669,3 @@ extension MyPageViewController: PHPickerViewControllerDelegate {
         }
     }
 }
-
