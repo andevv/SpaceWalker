@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import SafariServices
 import SnapKit
 import RxSwift
 import Kingfisher
@@ -15,6 +16,11 @@ import UniformTypeIdentifiers
 import ImageIO
 
 final class MyPageViewController: UIViewController {
+
+    // MARK: - Links
+    private let termsURLString = "https://an-dev.notion.site/SpaceWalker-289b268a2bd5807591d3feff91059098"
+    private let privacyURLString = "https://an-dev.notion.site/SpaceWalker-27eb268a2bd58000865cfb9620685592"
+    private let ossURLString = "https://an-dev.notion.site/SpaceWalker-289b268a2bd580ff856fe5f5992fa2fe"
 
     // MARK: - API Models
     private struct APIUser: Decodable {
@@ -421,9 +427,27 @@ final class MyPageViewController: UIViewController {
         present(vc, animated: true)
     }
 
-    @objc private func openPolicy() { toast("개인정보 처리방침 화면으로 연결") }
-    @objc private func openTerms() { toast("서비스 이용약관 화면으로 연결") }
-    @objc private func openOSS() { toast("오픈소스 라이선스 화면으로 연결") }
+    @objc private func openPolicy() { 
+        guard let url = URL(string: privacyURLString) else { return }
+        let safari = SFSafariViewController(url: url)
+        present(safari, animated: true)
+        // 외부 사파리 앱으로 열고 싶다면 아래를 사용하세요:
+        // UIApplication.shared.open(url)
+    }
+    @objc private func openTerms() { 
+        guard let url = URL(string: termsURLString) else { return }
+        let safari = SFSafariViewController(url: url)
+        present(safari, animated: true)
+        // 외부 사파리 앱으로 열고 싶다면 아래를 사용하세요:
+        // UIApplication.shared.open(url)
+    }
+    @objc private func openOSS() { 
+        guard let url = URL(string: ossURLString) else { return }
+        let safari = SFSafariViewController(url: url)
+        present(safari, animated: true)
+        // 외부 사파리 앱으로 열고 싶다면 아래를 사용하세요:
+        // UIApplication.shared.open(url)
+    }
     
     // MARK: - Avatar change
     @objc private func didTapChangeAvatar() {
@@ -577,3 +601,4 @@ extension MyPageViewController: PHPickerViewControllerDelegate {
         }
     }
 }
+
