@@ -19,7 +19,7 @@ final class MapViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Map"
+        //title = "Map"
         view.backgroundColor = .systemBackground
 
         setupMap()
