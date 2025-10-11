@@ -729,7 +729,12 @@ final class CalendarViewController: UIViewController {
         let ac = UIAlertController(title: "사진 접근 권한 필요",
                                    message: "설정 > SpaceWalker > 사진에서 권한을 허용해 주세요.",
                                    preferredStyle: .alert)
-        ac.addAction(UIAlertAction(title: "확인", style: .default))
+        ac.addAction(UIAlertAction(title: "취소", style: .cancel))
+        ac.addAction(UIAlertAction(title: "설정 열기", style: .default, handler: { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        }))
         present(ac, animated: true)
     }
 
