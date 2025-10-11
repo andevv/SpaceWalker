@@ -226,6 +226,43 @@ final class MyPageViewController: UIViewController {
         }
     }
 
+    private func updateNickname(_ newName: String) {
+        // PUT /api/v1/user/nickname { nickname: newName }
+        // 서버 에러(중복 등) 시 바디에 code/message가 내려온다고 가정하고 간단 파싱
+        NetworkManager.shared
+            .requestRawData("/api/v1/user/nickname", method: .put, parameters: ["nickname": newName], requiresAuth: true)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] data in
+                guard let self = self else { return }
+                // 성공으로 간주하고 최신 사용자 정보 재조회
+                self.fetchUser()
+                let ac = UIAlertController(title: "완료", message: "닉네임이 변경되었습니다.", preferredStyle: .alert)
+                ac.addAction(UIAlertAction(title: "확인", style: .default))
+                self.present(ac, animated: true)
+            }, onFailure: { [weak self] error in
+                guard let self = self else { return }
+                // 실패 사유 파싱 시도
+                var message = "닉네임 변경에 실패했습니다. 잠시 후 다시 시도해주세요."
+                if let afError = error as? AFError, case let .responseValidationFailed(reason) = afError {
+                    switch reason {
+                    case .unacceptableStatusCode(let code):
+                        if code == 409 { message = "이미 사용 중인 닉네임입니다." }
+                    default: break
+                    }
+                }
+                // 혹시 raw body가 함께 전달되었다면 간단 파싱
+                if let dataErr = (error as NSError).userInfo["com.alamofire.serialization.response.error.data"] as? Data,
+                   let obj = try? JSONSerialization.jsonObject(with: dataErr, options: []) as? [String: Any] {
+                    if let code = obj["code"] as? String, code.uppercased().contains("DUPLICATE") { message = "이미 사용 중인 닉네임입니다." }
+                    else if let msg = obj["message"] as? String, !msg.isEmpty { message = msg }
+                }
+                let ac = UIAlertController(title: "변경 실패", message: message, preferredStyle: .alert)
+                ac.addAction(UIAlertAction(title: "확인", style: .default))
+                self.present(ac, animated: true)
+            })
+            .disposed(by: disposeBag)
+    }
+
     // MARK: - Actions
     private func bindActions() {
         editButton.addTarget(self, action: #selector(didTapEditNickname), for: .touchUpInside)
@@ -236,19 +273,10 @@ final class MyPageViewController: UIViewController {
     }
 
     @objc private func didTapEditNickname() {
-        let alert = UIAlertController(title: "닉네임 변경", message: nil, preferredStyle: .alert)
-        alert.addTextField { tf in
-            tf.placeholder = "새 닉네임"
-            tf.text = self.nicknameLabel.text
+        let vc = EditNicknameViewController(currentNickname: self.nicknameLabel.text) { [weak self] newName in
+            self?.updateNickname(newName)
         }
-        alert.addAction(UIAlertAction(title: "취소", style: .cancel))
-        alert.addAction(UIAlertAction(title: "저장", style: .default, handler: { _ in
-            let newName = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let newName, !newName.isEmpty {
-                self.nicknameLabel.text = newName
-            }
-        }))
-        present(alert, animated: true)
+        present(vc, animated: true)
     }
 
     @objc private func openPolicy() { toast("개인정보 처리방침 화면으로 연결") }
