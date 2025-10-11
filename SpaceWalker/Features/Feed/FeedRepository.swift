@@ -89,4 +89,36 @@ final class FeedRepository {
             }
         }
     }
+
+    struct ReportResponse: Codable {
+        let postId: Int
+        let success: Bool
+    }
+
+    func report(postId: Int, reason: String = "REVIEW_REQUIRED") -> Single<ReportResponse> {
+        let endpoint = "/api/v1/feed/\(postId)/report"
+        let params: [String: Any] = [
+            "reason": reason
+        ]
+        let req: Single<Data> = NetworkManager.shared.requestRawData(
+            endpoint,
+            method: .post,
+            parameters: params,
+            requiresAuth: true
+        )
+        return req.flatMap { data -> Single<ReportResponse> in
+            // Debug: log raw response body for troubleshooting
+            if let text = String(data: data, encoding: .utf8) {
+                print("[FeedRepository] Report raw response (postId=\(postId)): \(text)")
+            } else {
+                print("[FeedRepository] Report raw response (postId=\(postId)): <non-utf8 data size=\(data.count)>")
+            }
+            do {
+                let decoded = try JSONDecoder().decode(ReportResponse.self, from: data)
+                return .just(decoded)
+            } catch {
+                return .error(error)
+            }
+        }
+    }
 }

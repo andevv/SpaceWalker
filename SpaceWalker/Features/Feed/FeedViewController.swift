@@ -390,12 +390,43 @@ extension FeedViewController: UICollectionViewDataSource {
                 .disposed(by: self.disposeBag)
         }
         cell.onReportTapped = { [weak self] in
+            guard let self = self else { return }
+            let idx = indexPath.item
+            guard idx < self.items.count else { return }
+            let postId = self.items[idx].postId
+
             let ac = UIAlertController(title: "신고하기",
                                        message: "이 사진을 신고할까요?",
                                        preferredStyle: .alert)
             ac.addAction(UIAlertAction(title: "취소", style: .cancel))
-            ac.addAction(UIAlertAction(title: "신고", style: .destructive))
-            self?.present(ac, animated: true)
+            ac.addAction(UIAlertAction(title: "신고", style: .destructive, handler: { [weak self] _ in
+                guard let self = self else { return }
+                // Call report API
+                self.feedRepository.report(postId: postId, reason: "REVIEW_REQUIRED")
+                    .observe(on: MainScheduler.instance)
+                    .subscribe(onSuccess: { [weak self] resp in
+                        guard let self = self else { return }
+                        if let data = try? JSONEncoder().encode(resp),
+                           let json = String(data: data, encoding: .utf8) {
+                            self.logger.info("[Feed] report response JSON — postId=\(postId), body=\(json, privacy: .public)")
+                        } else {
+                            self.logger.info("[Feed] report response (unencodable) — postId=\(postId)")
+                        }
+                        if resp.postId == postId && resp.success {
+                            let ok = UIAlertController(title: "신고 완료",
+                                                       message: "신고가 접수되었습니다. 검토 후 조치하겠습니다.",
+                                                       preferredStyle: .alert)
+                            ok.addAction(UIAlertAction(title: "확인", style: .default))
+                            self.present(ok, animated: true)
+                        } else {
+                            self.presentErrorAlert(message: "신고 처리에 실패했습니다. 잠시 후 다시 시도해주세요.")
+                        }
+                    }, onFailure: { [weak self] error in
+                        self?.presentErrorAlert(message: error.localizedDescription)
+                    })
+                    .disposed(by: self.disposeBag)
+            }))
+            self.present(ac, animated: true)
         }
         return cell
     }
