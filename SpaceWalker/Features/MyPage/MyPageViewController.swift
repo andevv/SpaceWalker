@@ -7,8 +7,19 @@
 
 import UIKit
 import SnapKit
+import RxSwift
+import Kingfisher
+import Alamofire
 
 final class MyPageViewController: UIViewController {
+
+    // MARK: - API Models
+    private struct APIUser: Decodable {
+        let userId: Int64
+        let nickname: String
+        let profileImageUrl: String
+    }
+    private let disposeBag = DisposeBag()
 
     // MARK: - UI
     private let scrollView = UIScrollView()
@@ -93,6 +104,7 @@ final class MyPageViewController: UIViewController {
         view.backgroundColor = .systemBackground
         setupLayout()
         bindActions()
+        fetchUser()
     }
 
     // MARK: - Layout
@@ -189,6 +201,31 @@ final class MyPageViewController: UIViewController {
         return b
     }
 
+    // MARK: - Networking
+    private func fetchUser() {
+        NetworkManager.shared
+            .request("/api/v1/user", method: .get, parameters: nil, requiresAuth: true)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { [weak self] (user: APIUser) in
+                self?.updateUI(with: user)
+            }, onFailure: { [weak self] error in
+                self?.toast("사용자 정보 조회 실패: \(error.localizedDescription)")
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func updateUI(with user: APIUser) {
+        // 닉네임 업데이트
+        self.nicknameLabel.text = user.nickname
+
+        // 프로필 이미지 로드 (Kingfisher 사용)
+        if let url = URL(string: user.profileImageUrl) {
+            let placeholder = UIImage(systemName: "person.circle")?.withRenderingMode(.alwaysTemplate)
+            self.avatarView.tintColor = .systemBlue
+            self.avatarView.kf.setImage(with: url, placeholder: placeholder)
+        }
+    }
+
     // MARK: - Actions
     private func bindActions() {
         editButton.addTarget(self, action: #selector(didTapEditNickname), for: .touchUpInside)
@@ -255,7 +292,7 @@ final class MyPageViewController: UIViewController {
                     let nav = UINavigationController(rootViewController: signUpVC)
                     nav.modalPresentationStyle = .fullScreen
 
-                    // ✅ 최신 방식: UIWindowScene → window 접근
+                    // 최신 방식: UIWindowScene → window 접근
                     if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                        let window = scene.windows.first {
                         window.rootViewController = nav
@@ -276,3 +313,4 @@ final class MyPageViewController: UIViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { ac.dismiss(animated: true) }
     }
 }
+
