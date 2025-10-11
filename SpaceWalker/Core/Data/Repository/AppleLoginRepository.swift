@@ -16,8 +16,11 @@ enum AppleLoginError: Error {
 
 final class AppleLoginRepository {
 
-    func loginWithApple(idToken: String) -> Single<AppleLoginResponse> {
-        let params: [String: Any] = ["idToken": idToken]
+    func loginWithApple(idToken: String, authCode: String) -> Single<AppleLoginResponse> {
+        let params: [String: Any] = [
+            "idToken": idToken,
+            "authCode": authCode
+        ]
 
         // API 요청
         let req: Single<Data> = NetworkManager.shared.requestRawData(

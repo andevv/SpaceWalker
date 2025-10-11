@@ -231,18 +231,32 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
             print("ID Token 없음")
             return
         }
+        
+        guard let authCodeData = credential.authorizationCode,
+              let authCode = String(data: authCodeData, encoding: .utf8) else {
+            print("Authorization Code 없음")
+            let alert = UIAlertController(
+                title: "로그인 실패",
+                message: "Authorization Code를 가져오지 못했습니다.",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "확인", style: .cancel))
+            self.present(alert, animated: true)
+            return
+        }
 
         let userIdentifier = credential.user
         UserDefaults.standard.set(userIdentifier, forKey: "apple_user_id")
         print("Apple 로그인 성공")
         print("userIdentifier:", userIdentifier)
         print("idToken (JWT):", idToken)
+        print("authCode (raw):", authCode)
 
         let loginRepo = AppleLoginRepository()
         let spaceRepo = SpaceRepository()
 
         // 순차 비동기 체인
-        loginRepo.loginWithApple(idToken: idToken)
+        loginRepo.loginWithApple(idToken: idToken, authCode: authCode)
             .do(onSuccess: { response in
                 // 토큰 저장
                 UserSessionStore.shared.accessToken = response.accessToken
@@ -315,3 +329,4 @@ extension SignUpViewController: ASAuthorizationControllerPresentationContextProv
         view.window!
     }
 }
+
