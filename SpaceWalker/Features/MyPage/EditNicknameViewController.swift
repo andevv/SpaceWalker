@@ -7,6 +7,7 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
     // MARK: - Public API
     init(currentNickname: String?, onSave: @escaping (String, @escaping (Bool) -> Void) -> Void) {
         self.onSave = onSave
+        self.originalNickname = (currentNickname ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         super.init(nibName: nil, bundle: nil)
         self.textField.text = currentNickname
         self.updateAllValidationStates(for: currentNickname ?? "")
@@ -22,6 +23,7 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
 
     // MARK: - Callbacks
     private let onSave: (String, @escaping (Bool) -> Void) -> Void
+    private let originalNickname: String
 
     // MARK: - DisposeBag
     private let disposeBag = DisposeBag()
@@ -237,7 +239,8 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
         noSpaceRule.isSatisfied = Self.validateNoSpace(trimmed)
         noEmojiRule.isSatisfied = Self.validateNoEmoji(trimmed)
         charsetRule.isSatisfied = Self.validateAllowedCharset(trimmed)
-        saveButton.isEnabled = validateAll(trimmed)
+        // 동일 닉네임일 경우 저장 비활성화
+        saveButton.isEnabled = validateAll(trimmed) && trimmed != originalNickname
     }
 
     private func validateAll(_ text: String) -> Bool {
