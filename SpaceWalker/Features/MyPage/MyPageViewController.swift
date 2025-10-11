@@ -10,6 +10,7 @@ import SnapKit
 import RxSwift
 import Kingfisher
 import Alamofire
+import PhotosUI
 
 final class MyPageViewController: UIViewController {
 
@@ -45,6 +46,23 @@ final class MyPageViewController: UIViewController {
         iv.image = UIImage(systemName: "person.circle")?.withRenderingMode(.alwaysTemplate)
         iv.tintColor = .systemBlue
         return iv
+    }()
+    
+    private let cameraButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.backgroundColor = .systemBackground
+        b.tintColor = .label
+        b.layer.cornerRadius = 18
+        b.layer.shadowColor = UIColor.black.cgColor
+        b.layer.shadowOpacity = 0.12
+        b.layer.shadowRadius = 4
+        b.layer.shadowOffset = CGSize(width: 0, height: 2)
+        let image = UIImage(systemName: "camera.fill")
+        b.setImage(image, for: .normal)
+        b.imageView?.contentMode = .scaleAspectFit
+        b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        return b
     }()
 
     // 닉네임 카드
@@ -127,6 +145,16 @@ final class MyPageViewController: UIViewController {
         // Top
         contentView.addSubview(titleLabel)
         contentView.addSubview(avatarView)
+        avatarView.layer.cornerRadius = 60
+
+        // Camera button overlay on avatar
+        contentView.addSubview(cameraButton)
+        cameraButton.snp.makeConstraints { make in
+            make.width.height.equalTo(36)
+            make.trailing.equalTo(avatarView.snp.trailing).offset(6)
+            make.bottom.equalTo(avatarView.snp.bottom).offset(6)
+        }
+        
         contentView.addSubview(nicknameCard)
 
         titleLabel.snp.makeConstraints { make in
@@ -139,7 +167,6 @@ final class MyPageViewController: UIViewController {
             make.centerX.equalToSuperview()
             make.width.height.equalTo(120)
         }
-        avatarView.layer.cornerRadius = 60
 
         nicknameCard.backgroundColor = .secondarySystemBackground
         nicknameCard.layer.cornerRadius = 16
@@ -274,6 +301,7 @@ final class MyPageViewController: UIViewController {
         termsButton.addTarget(self, action: #selector(openTerms), for: .touchUpInside)
         ossButton.addTarget(self, action: #selector(openOSS), for: .touchUpInside)
         withdrawButton.addTarget(self, action: #selector(didTapWithdraw), for: .touchUpInside)
+        cameraButton.addTarget(self, action: #selector(didTapChangeAvatar), for: .touchUpInside)
     }
 
     @objc private func didTapEditNickname() {
@@ -288,6 +316,25 @@ final class MyPageViewController: UIViewController {
     @objc private func openPolicy() { toast("개인정보 처리방침 화면으로 연결") }
     @objc private func openTerms() { toast("서비스 이용약관 화면으로 연결") }
     @objc private func openOSS() { toast("오픈소스 라이선스 화면으로 연결") }
+    
+    // MARK: - Avatar change
+    @objc private func didTapChangeAvatar() {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    private func applySelectedAvatar(_ image: UIImage) {
+        // Update avatar view with the selected image
+        self.avatarView.image = image
+        self.avatarView.contentMode = .scaleAspectFill
+        self.avatarView.tintColor = nil
+        self.avatarView.backgroundColor = UIColor.systemGray5.withAlphaComponent(0.0)
+        // TODO: Upload API integration will be added later
+    }
 
     // MARK: - 더미 회원탈퇴 로직
     @objc private func didTapWithdraw() {
@@ -347,3 +394,19 @@ final class MyPageViewController: UIViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { ac.dismiss(animated: true) }
     }
 }
+
+extension MyPageViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let itemProvider = results.first?.itemProvider, itemProvider.canLoadObject(ofClass: UIImage.self) else {
+            return
+        }
+        itemProvider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
+            guard let self = self, let image = object as? UIImage, error == nil else { return }
+            DispatchQueue.main.async {
+                self.applySelectedAvatar(image)
+            }
+        }
+    }
+}
+
