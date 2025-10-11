@@ -19,6 +19,10 @@ final class MyPageViewController: UIViewController {
         let nickname: String
         let profileImageUrl: String
     }
+    private struct UpdateNicknameResponse: Decodable {
+        let userId: Int64
+        let newNickname: String
+    }
     private let disposeBag = DisposeBag()
 
     // MARK: - UI
@@ -226,22 +230,19 @@ final class MyPageViewController: UIViewController {
         }
     }
 
-    private func updateNickname(_ newName: String) {
-        // PUT /api/v1/user/nickname { nickname: newName }
-        // 서버 에러(중복 등) 시 바디에 code/message가 내려온다고 가정하고 간단 파싱
+    private func updateNickname(_ newName: String, completion: @escaping (Bool) -> Void) {
         NetworkManager.shared
-            .requestRawData("/api/v1/user/nickname", method: .put, parameters: ["nickname": newName], requiresAuth: true)
+            .request("/api/v1/user/nickname", method: .patch, parameters: ["nickname": newName], requiresAuth: true)
             .observe(on: MainScheduler.instance)
-            .subscribe(onSuccess: { [weak self] data in
+            .subscribe(onSuccess: { [weak self] (res: UpdateNicknameResponse) in
                 guard let self = self else { return }
-                // 성공으로 간주하고 최신 사용자 정보 재조회
-                self.fetchUser()
+                self.nicknameLabel.text = res.newNickname
                 let ac = UIAlertController(title: "완료", message: "닉네임이 변경되었습니다.", preferredStyle: .alert)
                 ac.addAction(UIAlertAction(title: "확인", style: .default))
                 self.present(ac, animated: true)
+                completion(true)
             }, onFailure: { [weak self] error in
                 guard let self = self else { return }
-                // 실패 사유 파싱 시도
                 var message = "닉네임 변경에 실패했습니다. 잠시 후 다시 시도해주세요."
                 if let afError = error as? AFError, case let .responseValidationFailed(reason) = afError {
                     switch reason {
@@ -250,15 +251,18 @@ final class MyPageViewController: UIViewController {
                     default: break
                     }
                 }
-                // 혹시 raw body가 함께 전달되었다면 간단 파싱
-                if let dataErr = (error as NSError).userInfo["com.alamofire.serialization.response.error.data"] as? Data,
-                   let obj = try? JSONSerialization.jsonObject(with: dataErr, options: []) as? [String: Any] {
-                    if let code = obj["code"] as? String, code.uppercased().contains("DUPLICATE") { message = "이미 사용 중인 닉네임입니다." }
-                    else if let msg = obj["message"] as? String, !msg.isEmpty { message = msg }
+                if let data = (error as NSError).userInfo["com.alamofire.serialization.response.error.data"] as? Data,
+                   let obj = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                    if let code = obj["code"] as? String, code.uppercased().contains("DUPLICATE") {
+                        message = "이미 사용 중인 닉네임입니다."
+                    } else if let msg = obj["message"] as? String, !msg.isEmpty {
+                        message = msg
+                    }
                 }
                 let ac = UIAlertController(title: "변경 실패", message: message, preferredStyle: .alert)
                 ac.addAction(UIAlertAction(title: "확인", style: .default))
                 self.present(ac, animated: true)
+                completion(false)
             })
             .disposed(by: disposeBag)
     }
@@ -273,8 +277,10 @@ final class MyPageViewController: UIViewController {
     }
 
     @objc private func didTapEditNickname() {
-        let vc = EditNicknameViewController(currentNickname: self.nicknameLabel.text) { [weak self] newName in
-            self?.updateNickname(newName)
+        let vc = EditNicknameViewController(currentNickname: self.nicknameLabel.text) { [weak self] newName, completion in
+            self?.updateNickname(newName) { success in
+                completion(success)
+            }
         }
         present(vc, animated: true)
     }
@@ -341,4 +347,3 @@ final class MyPageViewController: UIViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { ac.dismiss(animated: true) }
     }
 }
-

@@ -5,7 +5,7 @@ import RxSwift
 final class EditNicknameViewController: UIViewController, UIGestureRecognizerDelegate {
 
     // MARK: - Public API
-    init(currentNickname: String?, onSave: @escaping (String) -> Void) {
+    init(currentNickname: String?, onSave: @escaping (String, @escaping (Bool) -> Void) -> Void) {
         self.onSave = onSave
         super.init(nibName: nil, bundle: nil)
         self.textField.text = currentNickname
@@ -21,7 +21,7 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     // MARK: - Callbacks
-    private let onSave: (String) -> Void
+    private let onSave: (String, @escaping (Bool) -> Void) -> Void
 
     // MARK: - DisposeBag
     private let disposeBag = DisposeBag()
@@ -194,13 +194,21 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
         let newName = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard validateAll(newName) else { return }
         setSaving(true)
-        // API 연동은 상위에서 처리하도록 onSave 콜백만 전달
-        // (중복 검사는 서버 응답을 통해 처리하는 것을 권장)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self else { return }
-            self.onSave(newName)
+        // 상위에서 API 호출을 수행하고 성공 여부를 completion으로 전달
+        onSave(newName) { [weak self] success in
+            guard let self = self else { return }
             self.setSaving(false)
-            self.dismiss(animated: true)
+            if success {
+                let ac = UIAlertController(title: "완료", message: "닉네임이 변경되었습니다.", preferredStyle: .alert)
+                ac.addAction(UIAlertAction(title: "확인", style: .default, handler: { [weak self] _ in
+                    self?.dismiss(animated: true)
+                }))
+                self.present(ac, animated: true)
+            } else {
+                let ac = UIAlertController(title: "변경 실패", message: "닉네임 변경에 실패했습니다. 잠시 후 다시 시도해주세요.", preferredStyle: .alert)
+                ac.addAction(UIAlertAction(title: "확인", style: .default))
+                self.present(ac, animated: true)
+            }
         }
     }
 
