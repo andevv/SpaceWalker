@@ -18,7 +18,7 @@ struct DailyMissionDTO: Decodable {
 struct AuthorDTO: Decodable {
     let userId: Int
     let nickname: String
-    let profileImageUrl: String
+    let profileImageUrl: String?
 }
 
 struct SpacePostDetailResponse: Decodable {

@@ -4,7 +4,7 @@ import Alamofire
 
 public struct FeedDetailDTO: Decodable {
     public struct DailyMission: Decodable { let missionId: Int; let title: String }
-    public struct Author: Decodable { let nickname: String; let profileImageUrl: String }
+    public struct Author: Decodable { let nickname: String; let profileImageUrl: String? }
 
     let postId: Int
     let spaceId: Int

@@ -247,7 +247,7 @@ final class FeedDetailViewController: UIViewController {
                     authorName: dto.author.nickname,
                     missionTitle: dto.dailyMission.title,
                     imageURL: imageURL,
-                    authorProfileURL: URL(string: dto.author.profileImageUrl)
+                    authorProfileURL: dto.author.profileImageUrl.flatMap(URL.init(string:))
                 )
                 self.model = updated
                 self.bindData()

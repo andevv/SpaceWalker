@@ -616,6 +616,7 @@ final class CalendarDetailViewController: UIViewController {
             let likeCount = response.likeCount
             let missionTitle = response.dailyMission.title
             let authorName = response.author.nickname
+            let authorProfileURLString = response.author.profileImageUrl
 
             // Realm lookup by s3objectKey
             var localMeta: PhotoMetadata?
@@ -690,10 +691,18 @@ final class CalendarDetailViewController: UIViewController {
                 }
             }
 
-            // Fetch and set author's profile image
-            if let profileImage = await self.fetchImage(from: response.author.profileImageUrl) {
+            // Fetch and set author's profile image (nullable)
+            if let urlString = authorProfileURLString, let profileImage = await self.fetchImage(from: urlString) {
                 await MainActor.run {
                     self.shooterIcon.image = profileImage
+                }
+            } else {
+                await MainActor.run {
+                    // Fallback placeholder when user has no profile image
+                    self.shooterIcon.image = UIImage(systemName: "person.crop.circle")
+                    self.shooterIcon.tintColor = .systemGray3
+                    self.shooterIcon.backgroundColor = .systemGray5
+                    self.shooterIcon.contentMode = .scaleAspectFill
                 }
             }
 

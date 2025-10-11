@@ -11,6 +11,8 @@ import RxSwift
 import Kingfisher
 import Alamofire
 import PhotosUI
+import UniformTypeIdentifiers
+import ImageIO
 
 final class MyPageViewController: UIViewController {
 
@@ -18,12 +20,26 @@ final class MyPageViewController: UIViewController {
     private struct APIUser: Decodable {
         let userId: Int64
         let nickname: String
-        let profileImageUrl: String
+        let profileImageUrl: String?
     }
     private struct UpdateNicknameResponse: Decodable {
         let userId: Int64
         let newNickname: String
     }
+    private struct PresignedProfileUpload: Decodable {
+        let s3objectKey: String
+        let s3Url: String
+    }
+    private struct ProfileUpdatedResponse: Decodable {
+        let success: Bool
+    }
+
+    private enum ImageMimeType: String {
+        case jpeg = "image/jpeg"
+        case png = "image/png"
+        case heic = "image/heic"
+    }
+
     private let disposeBag = DisposeBag()
 
     // MARK: - UI
@@ -64,6 +80,8 @@ final class MyPageViewController: UIViewController {
         b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         return b
     }()
+    
+    private var lastPickedMimeType: ImageMimeType = .jpeg
 
     // 닉네임 카드
     private let nicknameCard = UIView()
@@ -249,11 +267,16 @@ final class MyPageViewController: UIViewController {
         // 닉네임 업데이트
         self.nicknameLabel.text = user.nickname
 
-        // 프로필 이미지 로드 (Kingfisher 사용)
-        if let url = URL(string: user.profileImageUrl) {
+        // 프로필 이미지 로드 (Kingfisher 사용) — nullable 대응
+        if let urlString = user.profileImageUrl, let url = URL(string: urlString) {
             let placeholder = UIImage(systemName: "person.circle")?.withRenderingMode(.alwaysTemplate)
             self.avatarView.tintColor = .systemBlue
             self.avatarView.kf.setImage(with: url, placeholder: placeholder)
+        } else {
+            // 프로필 미설정 시 플레이스홀더 유지
+            self.avatarView.image = UIImage(systemName: "person.circle")?.withRenderingMode(.alwaysTemplate)
+            self.avatarView.tintColor = .systemBlue
+            self.avatarView.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
         }
     }
 
@@ -292,6 +315,91 @@ final class MyPageViewController: UIViewController {
                 completion(false)
             })
             .disposed(by: disposeBag)
+    }
+    
+    // MARK: - Upload Helpers
+    private func detectMimeType(from provider: NSItemProvider) -> ImageMimeType {
+        if provider.hasItemConformingToTypeIdentifier(UTType.heic.identifier) {
+            return .heic
+        } else if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+            return .png
+        } else {
+            return .jpeg
+        }
+    }
+
+    private func makeUploadData(from image: UIImage, preferred: ImageMimeType) -> (data: Data, mime: ImageMimeType)? {
+        switch preferred {
+        case .png:
+            if let data = image.pngData() { return (data, .png) }
+            // fallback
+            if let data = image.jpegData(compressionQuality: 0.9) { return (data, .jpeg) }
+        case .jpeg:
+            if let data = image.jpegData(compressionQuality: 0.9) { return (data, .jpeg) }
+            // fallback
+            if let data = image.pngData() { return (data, .png) }
+        case .heic:
+            if let heicData = encodeHEIC(image: image, quality: 0.9) {
+                return (heicData, .heic)
+            }
+            // fallback to jpeg if HEIC encoding isn't available
+            if let data = image.jpegData(compressionQuality: 0.9) { return (data, .jpeg) }
+        }
+        return nil
+    }
+
+    private func encodeHEIC(image: UIImage, quality: CGFloat) -> Data? {
+        guard let cgImage = image.cgImage else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.heic.identifier as CFString, 1, nil) else {
+            return nil
+        }
+        let options: CFDictionary = [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
+        CGImageDestinationAddImage(dest, cgImage, options)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
+
+    private func requestPresignedProfileURL(mimeType: ImageMimeType, completion: @escaping (Result<PresignedProfileUpload, Error>) -> Void) {
+        NetworkManager.shared
+            .request("/api/v1/user/profile", method: .get, parameters: ["mimeType": mimeType.rawValue], requiresAuth: true)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { (res: PresignedProfileUpload) in
+                completion(.success(res))
+            }, onFailure: { error in
+                completion(.failure(error))
+            })
+            .disposed(by: disposeBag)
+    }
+    
+    private func notifyProfileUpdated(objectKey: String, completion: @escaping (Result<Bool, Error>) -> Void) {
+        NetworkManager.shared
+            .request("/api/v1/user/profile-updated", method: .patch, parameters: ["s3objectKey": objectKey], requiresAuth: true)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { (res: ProfileUpdatedResponse) in
+                completion(.success(res.success))
+            }, onFailure: { error in
+                completion(.failure(error))
+            })
+            .disposed(by: disposeBag)
+    }
+
+    private func uploadImageDataToS3(_ data: Data, contentType: String, to urlString: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: urlString) else {
+            completion(.failure(NSError(domain: "InvalidURL", code: -1)))
+            return
+        }
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: contentType)
+        AF.upload(data, to: url, method: .put, headers: headers)
+            .validate(statusCode: 200..<300)
+            .response { response in
+                if let error = response.error {
+                    completion(.failure(error))
+                } else {
+                    completion(.success(()))
+                }
+            }
     }
 
     // MARK: - Actions
@@ -333,7 +441,13 @@ final class MyPageViewController: UIViewController {
         self.avatarView.contentMode = .scaleAspectFill
         self.avatarView.tintColor = nil
         self.avatarView.backgroundColor = UIColor.systemGray5.withAlphaComponent(0.0)
-        // TODO: Upload API integration will be added later
+
+        // Determine original type from the last picked provider if available (handled in delegate)
+        // Here we default to jpeg for safety; the delegate will pass the correct type via a stored property if needed.
+        // For now, attempt best-effort encoding and upload.
+        // NOTE: The actual mime type detection occurs in the picker delegate using the NSItemProvider.
+
+        // No-op here; actual upload is triggered from picker delegate after detection.
     }
 
     // MARK: - 더미 회원탈퇴 로직
@@ -393,20 +507,73 @@ final class MyPageViewController: UIViewController {
         present(ac, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { ac.dismiss(animated: true) }
     }
+    
+    private func showAlert(title: String, message: String) {
+        let ac = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        ac.addAction(UIAlertAction(title: "확인", style: .default))
+        present(ac, animated: true)
+    }
 }
 
 extension MyPageViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let itemProvider = results.first?.itemProvider, itemProvider.canLoadObject(ofClass: UIImage.self) else {
-            return
-        }
-        itemProvider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
+        guard let result = results.first else { return }
+        let provider = result.itemProvider
+        let detected = detectMimeType(from: provider)
+        self.lastPickedMimeType = detected
+
+        // Load UIImage, then re-encode to strip metadata
+        provider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
             guard let self = self, let image = object as? UIImage, error == nil else { return }
+
+            // Prepare data for upload (re-encodes to remove metadata)
+            guard let upload = self.makeUploadData(from: image, preferred: detected) else { return }
+
             DispatchQueue.main.async {
-                self.applySelectedAvatar(image)
+                self.toast("프로필 이미지 업로드 중…")
+            }
+
+            // 1) Request presigned URL
+            self.requestPresignedProfileURL(mimeType: upload.mime) { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .success(let presigned):
+                    // 2) Upload to S3
+                    self.uploadImageDataToS3(upload.data, contentType: upload.mime.rawValue, to: presigned.s3Url) { [weak self] uploadResult in
+                        guard let self = self else { return }
+                        switch uploadResult {
+                        case .success:
+                            // 3) Notify backend with objectKey
+                            self.notifyProfileUpdated(objectKey: presigned.s3objectKey) { [weak self] notifyResult in
+                                guard let self = self else { return }
+                                DispatchQueue.main.async {
+                                    switch notifyResult {
+                                    case .success(let ok) where ok:
+                                        // Commit UI update and show success alert
+                                        self.applySelectedAvatar(image)
+                                        let ac = UIAlertController(title: "완료", message: "프로필 이미지가 업데이트되었습니다.", preferredStyle: .alert)
+                                        ac.addAction(UIAlertAction(title: "확인", style: .default))
+                                        self.present(ac, animated: true)
+                                    case .success:
+                                        self.showAlert(title: "업데이트 실패", message: "이미지 업데이트 확인에 실패했습니다.")
+                                    case .failure(let err):
+                                        self.showAlert(title: "업데이트 실패", message: "업데이트 확인 실패: \(err.localizedDescription)")
+                                    }
+                                }
+                            }
+                        case .failure(let err):
+                            DispatchQueue.main.async {
+                                self.showAlert(title: "업로드 실패", message: "이미지 업로드 실패: \(err.localizedDescription)")
+                            }
+                        }
+                    }
+                case .failure(let err):
+                    DispatchQueue.main.async {
+                        self.showAlert(title: "요청 실패", message: "URL 발급 실패: \(err.localizedDescription)")
+                    }
+                }
             }
         }
     }
 }
-
