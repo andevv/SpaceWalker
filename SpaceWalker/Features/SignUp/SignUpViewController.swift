@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import SafariServices
 import SnapKit
 import AuthenticationServices
 import CryptoKit
@@ -13,6 +14,10 @@ import RxSwift
 import RxCocoa
 
 final class SignUpViewController: UIViewController {
+
+    // MARK: - Links
+    private let termsURLString = "https://an-dev.notion.site/SpaceWalker-289b268a2bd5807591d3feff91059098"
+    private let privacyURLString = "https://an-dev.notion.site/SpaceWalker-27eb268a2bd58000865cfb9620685592"
 
     // MARK: - UI Components
     private let logoImageView: UIImageView = {
@@ -159,43 +164,23 @@ final class SignUpViewController: UIViewController {
         controller.performRequests()
     }
 
-    // MARK: - Terms / Privacy (더미 표시)
+    // MARK: - Terms / Privacy
     @objc private func openTerms() {
-        let dummy = """
-        [서비스 이용약관 - 더미]
-        SpaceWalker 서비스를 이용해주셔서 감사합니다.
-        본 약관은 서비스의 이용조건 및 절차, 회원과 회사의 권리·의무 등 기본적인 사항을 규정합니다.
-
-        1. 목적
-        2. 용어의 정의
-        3. 약관의 효력 및 변경
-        4. 회원의 의무
-        5. 서비스의 제공 및 중단
-        6. 기타
-
-        ※ 실제 약관은 서버 API 연동 후 교체됩니다.
-        """
-        let vc = SimpleDocViewController(titleText: "서비스 이용약관", bodyText: dummy)
-        presentSheet(vc)
+        guard let url = URL(string: termsURLString) else { return }
+        // In-app Safari
+        let safari = SFSafariViewController(url: url)
+        present(safari, animated: true)
+        // If you prefer opening external Safari app instead of in-app Safari, use the line below:
+        // UIApplication.shared.open(url)
     }
 
     @objc private func openPrivacy() {
-        let dummy = """
-        [개인정보 처리방침 - 더미]
-        SpaceWalker는 이용자의 개인정보를 중요하게 생각합니다.
-        수집·이용·보관·파기에 관한 정책을 다음과 같이 안내합니다.
-
-        1. 수집하는 개인정보의 항목
-        2. 개인정보의 수집 및 이용목적
-        3. 개인정보의 보유 및 이용기간
-        4. 개인정보의 제3자 제공 및 위탁
-        5. 이용자의 권리와 행사 방법
-        6. 기타
-
-        ※ 실제 방침은 서버 API 연동 후 교체됩니다.
-        """
-        let vc = SimpleDocViewController(titleText: "개인정보 처리방침", bodyText: dummy)
-        presentSheet(vc)
+        guard let url = URL(string: privacyURLString) else { return }
+        // In-app Safari
+        let safari = SFSafariViewController(url: url)
+        present(safari, animated: true)
+        // If you prefer opening external Safari app instead of in-app Safari, use the line below:
+        // UIApplication.shared.open(url)
     }
 
     private func presentSheet(_ vc: UIViewController) {
@@ -254,61 +239,61 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         print("idToken (JWT):", idToken)
 
         let loginRepo = AppleLoginRepository()
-            let spaceRepo = SpaceRepository()
+        let spaceRepo = SpaceRepository()
 
-            // 순차 비동기 체인
-            loginRepo.loginWithApple(idToken: idToken)
-                .do(onSuccess: { response in
-                    // 토큰 저장
-                    UserSessionStore.shared.accessToken = response.accessToken
-                    UserSessionStore.shared.refreshToken = response.refreshToken
-                    print("서버 로그인 성공 — AccessToken 저장 완료")
-                })
-                .flatMap { _ in
-                    // 로그인 완료 후 → 스페이스 목록 요청
-                    print("[API] 내 스페이스 목록 요청 시작")
-                    return spaceRepo.fetchMySpaces()
-                }
-                .observe(on: MainScheduler.instance)
-                .subscribe(
-                    onSuccess: { joinedSpaces in
-                        print("[API] 내 스페이스 목록 응답 수신 — count: \(joinedSpaces.count)")
+        // 순차 비동기 체인
+        loginRepo.loginWithApple(idToken: idToken)
+            .do(onSuccess: { response in
+                // 토큰 저장
+                UserSessionStore.shared.accessToken = response.accessToken
+                UserSessionStore.shared.refreshToken = response.refreshToken
+                print("서버 로그인 성공 — AccessToken 저장 완료")
+            })
+            .flatMap { _ in
+                // 로그인 완료 후 → 스페이스 목록 요청
+                print("[API] 내 스페이스 목록 요청 시작")
+                return spaceRepo.fetchMySpaces()
+            }
+            .observe(on: MainScheduler.instance)
+            .subscribe(
+                onSuccess: { joinedSpaces in
+                    print("[API] 내 스페이스 목록 응답 수신 — count: \(joinedSpaces.count)")
 
-                        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                              let delegate = scene.delegate as? SceneDelegate,
-                              let window = delegate.window else { return }
+                    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                          let delegate = scene.delegate as? SceneDelegate,
+                          let window = delegate.window else { return }
 
-                        let nextVC: UIViewController
-                        if joinedSpaces.isEmpty {
-                            print("사용자가 속한 Space 없음 → SpaceSelectViewController로 이동")
-                            nextVC = SpaceSelectViewController()
-                        } else {
-                            print("사용자가 속한 Space 있음 → CalendarViewController로 이동")
-                            nextVC = MainTabBarController()
-                        }
-
-                        UIView.transition(
-                            with: window,
-                            duration: 0.4,
-                            options: .transitionCrossDissolve,
-                            animations: {
-                                window.rootViewController = nextVC
-                            },
-                            completion: nil
-                        )
-                    },
-                    onFailure: { error in
-                        print("로그인 or 스페이스 조회 실패:", error.localizedDescription)
-                        let alert = UIAlertController(
-                            title: "로그인 실패",
-                            message: error.localizedDescription,
-                            preferredStyle: .alert
-                        )
-                        alert.addAction(UIAlertAction(title: "확인", style: .cancel))
-                        self.present(alert, animated: true)
+                    let nextVC: UIViewController
+                    if joinedSpaces.isEmpty {
+                        print("사용자가 속한 Space 없음 → SpaceSelectViewController로 이동")
+                        nextVC = SpaceSelectViewController()
+                    } else {
+                        print("사용자가 속한 Space 있음 → CalendarViewController로 이동")
+                        nextVC = MainTabBarController()
                     }
-                )
-                .disposed(by: disposeBag)
+
+                    UIView.transition(
+                        with: window,
+                        duration: 0.4,
+                        options: .transitionCrossDissolve,
+                        animations: {
+                            window.rootViewController = nextVC
+                        },
+                        completion: nil
+                    )
+                },
+                onFailure: { error in
+                    print("로그인 or 스페이스 조회 실패:", error.localizedDescription)
+                    let alert = UIAlertController(
+                        title: "로그인 실패",
+                        message: error.localizedDescription,
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: "확인", style: .cancel))
+                    self.present(alert, animated: true)
+                }
+            )
+            .disposed(by: disposeBag)
     }
 
     func authorizationController(controller: ASAuthorizationController,
