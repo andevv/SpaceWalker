@@ -64,6 +64,10 @@ final class CalendarViewController: UIViewController {
     private let chipContainer = UIView()
     private let chipStack = UIStackView()
 
+    // Scrollable container for header + calendar (prevents overlap on iPad with shorter vertical space)
+    private let scrollView = UIScrollView()
+    private let contentView = UIView()
+
     private var calendarHeightConstraint: Constraint?
 
     private let calendar: FSCalendar = {
@@ -176,26 +180,44 @@ final class CalendarViewController: UIViewController {
 
     // MARK: - Layout
     private func setupLayout() {
-        // 상단
-        view.addSubview(titleLabel)
-        view.addSubview(missionLabel)
-        view.addSubview(chipContainer)
+        // Scroll area (top content)
+        view.addSubview(scrollView)
+        scrollView.addSubview(contentView)
+
+        // 상단 콘텐츠를 contentView에 배치
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(missionLabel)
+        contentView.addSubview(chipContainer)
         chipContainer.addSubview(chipStack)
 
-        // 월 헤더 + 캘린더
-        view.addSubview(monthBar)
+        // 월 헤더 + 캘린더 (contentView 내부)
+        contentView.addSubview(monthBar)
         monthBar.addSubview(prevButton)
         monthBar.addSubview(monthTitleLabel)
         monthBar.addSubview(nextButton)
-        view.addSubview(calendar)
+        contentView.addSubview(calendar)
 
-        // 하단
+        // 하단 고정 바
         view.addSubview(bottomBar)
         bottomBar.addSubview(missionButton)
 
+        // ScrollView constraints: safe area 상단부터 bottomBar 위까지
+        scrollView.snp.makeConstraints { make in
+            make.top.equalTo(view.safeAreaLayoutGuide.snp.top)
+            make.leading.trailing.equalToSuperview()
+            make.bottom.equalTo(bottomBar.snp.top)
+        }
+        contentView.snp.makeConstraints { make in
+            // contentLayoutGuide에 맞추어 스크롤 콘텐츠 크기 제공
+            make.edges.equalTo(scrollView.contentLayoutGuide)
+            // frameLayoutGuide의 폭과 동일하게 고정
+            make.width.equalTo(scrollView.frameLayoutGuide)
+        }
+
+        // 상단
         titleLabel.snp.makeConstraints { make in
-            make.top.equalTo(view.safeAreaLayoutGuide).inset(20)
-            make.leading.trailing.equalToSuperview().inset(20)
+            make.top.equalTo(contentView.snp.top).inset(20)
+            make.leading.trailing.equalTo(contentView).inset(20)
         }
         missionLabel.snp.makeConstraints { make in
             make.top.equalTo(titleLabel.snp.bottom).offset(8)
@@ -210,7 +232,7 @@ final class CalendarViewController: UIViewController {
 
         chipContainer.snp.makeConstraints { make in
             make.top.equalTo(missionLabel.snp.bottom).offset(16)
-            make.leading.trailing.equalToSuperview()
+            make.leading.trailing.equalTo(contentView)
             make.height.equalTo(40)
         }
         chipStack.snp.makeConstraints { make in
@@ -221,7 +243,7 @@ final class CalendarViewController: UIViewController {
 
         monthBar.snp.remakeConstraints { make in
             make.top.equalTo(chipContainer.snp.bottom).offset(32)
-            make.leading.trailing.equalToSuperview().inset(20)
+            make.leading.trailing.equalTo(contentView).inset(20)
             make.height.equalTo(24)
         }
 
@@ -244,12 +266,13 @@ final class CalendarViewController: UIViewController {
 
         calendar.snp.makeConstraints { make in
             make.top.equalTo(monthBar.snp.bottom).offset(16)
-            make.leading.trailing.equalToSuperview().inset(10)
+            make.leading.trailing.equalTo(contentView).inset(10)
             self.calendarHeightConstraint = make.height.equalTo(320).constraint
-            make.bottom.lessThanOrEqualTo(bottomBar.snp.top).offset(-20)
+            // 스크롤 콘텐츠의 바닥은 캘린더 이후로 이어지도록 contentView의 bottom에 연결
+            make.bottom.equalTo(contentView.snp.bottom).inset(20)
         }
 
-        // Loading overlay on calendar
+        // Loading overlay on calendar (오버레이는 전체 view에 붙이고, 캘린더 영역에 맞춰 제약)
         view.addSubview(loadingContainer)
         loadingContainer.addSubview(activityIndicator)
         loadingContainer.addSubview(uploadProgressView)
@@ -269,10 +292,11 @@ final class CalendarViewController: UIViewController {
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide)
         }
-        missionButton.snp.makeConstraints { make in
-            make.top.equalToSuperview().inset(12)
-            make.leading.trailing.equalToSuperview().inset(20)
-            make.bottom.equalToSuperview().inset(12)
+        // 버튼을 safe area 아래와 겹치지 않게, safe area 위 24pt에 배치
+        missionButton.snp.remakeConstraints { make in
+            make.top.equalTo(bottomBar.snp.top).inset(12)
+            make.leading.trailing.equalTo(bottomBar).inset(20)
+            make.bottom.equalTo(view.safeAreaLayoutGuide).inset(24)
             make.height.equalTo(52)
         }
 
