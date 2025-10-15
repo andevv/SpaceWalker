@@ -17,6 +17,11 @@ final class MapViewController: UIViewController {
     private let locationManager = CLLocationManager()
     private var realmToken: NotificationToken?
 
+    // Preserve previous tab bar appearance so changes are scoped to Map tab only
+    private var previousTabBarStandardAppearance: UITabBarAppearance?
+    private var previousTabBarScrollEdgeAppearance: UITabBarAppearance?
+    private var previousTabBarIsTranslucent: Bool?
+
     override func viewDidLoad() {
         super.viewDidLoad()
         //title = "Map"
@@ -27,6 +32,47 @@ final class MapViewController: UIViewController {
         addPinsFromRealm()
         startObservingRealm()
         zoomToAllAnnotations(animated: false)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if #available(iOS 26, *) {
+            // iOS 26+: keep existing behavior — no special tab bar appearance needed
+        } else {
+            // iOS 18 and below: apply opaque tab bar appearance while Map is visible
+            if let tb = self.tabBarController?.tabBar {
+                previousTabBarStandardAppearance = tb.standardAppearance
+                previousTabBarScrollEdgeAppearance = tb.scrollEdgeAppearance
+                previousTabBarIsTranslucent = tb.isTranslucent
+            }
+            configureTabBarAppearance()
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if #available(iOS 26, *) {
+            // iOS 26+: nothing to restore
+        } else {
+            // iOS 18 and below: restore previous appearance so other tabs aren't affected
+            if let tb = self.tabBarController?.tabBar {
+                if let prevStd = previousTabBarStandardAppearance { tb.standardAppearance = prevStd }
+                if let prevScroll = previousTabBarScrollEdgeAppearance { tb.scrollEdgeAppearance = prevScroll }
+                if let prevTranslucent = previousTabBarIsTranslucent { tb.isTranslucent = prevTranslucent }
+            }
+        }
+    }
+    
+    private func configureTabBarAppearance() {
+        guard let tb = self.tabBarController?.tabBar else { return }
+        let appearance = UITabBarAppearance()
+        // 기본 배경(불투명)으로 설정 — iOS 16~18에서 투명해지는 문제 방지
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .systemBackground
+
+        tb.standardAppearance = appearance
+        tb.scrollEdgeAppearance = appearance
+        tb.isTranslucent = false // 추가 안전장치
     }
 
     private func setupMap() {
