@@ -201,13 +201,13 @@ final class FeedDetailViewController: UIViewController {
         }
     }
 
-    private func updateLikeAppearance(liked: Bool) {
-        if liked {
+    private func updateLikeIcon(forCount count: Int) {
+        if count > 0 {
             likeIcon.image = UIImage(systemName: "heart.fill")
             likeIcon.tintColor = .systemRed
         } else {
             likeIcon.image = UIImage(systemName: "heart")
-            likeIcon.tintColor = .secondaryLabel
+            likeIcon.tintColor = .systemRed
         }
     }
 
@@ -226,7 +226,7 @@ final class FeedDetailViewController: UIViewController {
         }
         
         missionTitleLabel.text = model.missionTitle
-        updateLikeAppearance(liked: model.liked)
+        updateLikeIcon(forCount: model.likeCount)
 
         // Load image from URL if needed
         if model.image == nil, let url = model.imageURL {
