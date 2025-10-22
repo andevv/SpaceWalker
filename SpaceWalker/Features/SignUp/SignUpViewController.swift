@@ -228,13 +228,13 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
 
         guard let tokenData = credential.identityToken,
               let idToken = String(data: tokenData, encoding: .utf8) else {
-            print("ID Token 없음")
+            LogAuth("ID Token 없음")
             return
         }
         
         guard let authCodeData = credential.authorizationCode,
               let authCode = String(data: authCodeData, encoding: .utf8) else {
-            print("Authorization Code 없음")
+            LogAuth("Authorization Code 없음")
             let alert = UIAlertController(
                 title: "로그인 실패",
                 message: "Authorization Code를 가져오지 못했습니다.",
@@ -247,10 +247,10 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
 
         let userIdentifier = credential.user
         UserDefaults.standard.set(userIdentifier, forKey: "apple_user_id")
-        print("Apple 로그인 성공")
-        print("userIdentifier:", userIdentifier)
-        print("idToken (JWT):", idToken)
-        print("authCode (raw):", authCode)
+        LogAuth("Apple 로그인 성공")
+        LogAuth("userIdentifier: \(userIdentifier)")
+        LogAuth("idToken (JWT): \(idToken)")
+        LogAuth("authCode (raw): \(authCode)")
 
         let loginRepo = AppleLoginRepository()
         let spaceRepo = SpaceRepository()
@@ -261,17 +261,17 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
                 // 토큰 저장
                 UserSessionStore.shared.accessToken = response.accessToken
                 UserSessionStore.shared.refreshToken = response.refreshToken
-                print("서버 로그인 성공 — AccessToken 저장 완료")
+                LogAuth("서버 로그인 성공 — AccessToken 저장 완료")
             })
             .flatMap { _ in
                 // 로그인 완료 후 → 스페이스 목록 요청
-                print("[API] 내 스페이스 목록 요청 시작")
+                LogNetwork("[API] 내 스페이스 목록 요청 시작")
                 return spaceRepo.fetchMySpaces()
             }
             .observe(on: MainScheduler.instance)
             .subscribe(
                 onSuccess: { joinedSpaces in
-                    print("[API] 내 스페이스 목록 응답 수신 — count: \(joinedSpaces.count)")
+                    LogNetwork("[API] 내 스페이스 목록 응답 수신 — count: \(joinedSpaces.count)")
 
                     guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                           let delegate = scene.delegate as? SceneDelegate,
@@ -279,10 +279,10 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
 
                     let nextVC: UIViewController
                     if joinedSpaces.isEmpty {
-                        print("사용자가 속한 Space 없음 → SpaceSelectViewController로 이동")
+                        LogAuth("사용자가 속한 Space 없음 → SpaceSelectViewController로 이동")
                         nextVC = SpaceSelectViewController()
                     } else {
-                        print("사용자가 속한 Space 있음 → CalendarViewController로 이동")
+                        LogAuth("사용자가 속한 Space 있음 → CalendarViewController로 이동")
                         nextVC = MainTabBarController()
                     }
 
@@ -297,7 +297,7 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
                     )
                 },
                 onFailure: { error in
-                    print("로그인 or 스페이스 조회 실패:", error.localizedDescription)
+                    LogNetwork("로그인 or 스페이스 조회 실패: \(error.localizedDescription)")
                     let alert = UIAlertController(
                         title: "로그인 실패",
                         message: error.localizedDescription,
@@ -312,7 +312,7 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
 
     func authorizationController(controller: ASAuthorizationController,
                                  didCompleteWithError error: Error) {
-        print("Apple 로그인 실패:", error.localizedDescription)
+        LogAuth("Apple 로그인 실패: \(error.localizedDescription)")
         let alert = UIAlertController(
             title: "로그인 실패",
             message: error.localizedDescription,
@@ -329,4 +329,3 @@ extension SignUpViewController: ASAuthorizationControllerPresentationContextProv
         view.window!
     }
 }
-

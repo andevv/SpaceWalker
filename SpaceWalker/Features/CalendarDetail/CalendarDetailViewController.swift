@@ -132,7 +132,7 @@ final class CalendarDetailViewController: UIViewController {
         }
         
         // Debug log
-        print("Detail identifier:", identifier)
+        LogUI("Detail identifier: \(identifier)")
     }
 
     // MARK: - Setup
@@ -574,7 +574,7 @@ final class CalendarDetailViewController: UIViewController {
                             }
                         }
                     } catch {
-                        print("Realm delete failed: \(error)")
+                        LogGeneral("Realm delete failed: \(error.localizedDescription)")
                     }
                 }
                 await MainActor.run {
@@ -606,10 +606,10 @@ final class CalendarDetailViewController: UIViewController {
     }
 
     private func fetchAndBind(identifier: SpacePostIdentifier) async {
-        print("Fetching detail for spaceId=\(identifier.spaceId), postId=\(identifier.postId)")
+        LogNetwork("Fetching detail for spaceId=\(identifier.spaceId), postId=\(identifier.postId)")
         do {
             let response = try await spaceRepository.fetchPostDetail(spaceId: identifier.spaceId, postId: identifier.postId).value
-            print("Response received:", response)
+            LogNetwork("Response received: \(response)")
             self.s3objectKey = response.s3objectKey
 
             let isPublic = response.isPublic
@@ -624,7 +624,7 @@ final class CalendarDetailViewController: UIViewController {
                 let realm = try await Realm()
                 localMeta = realm.objects(PhotoMetadata.self).filter("s3Key == %@", response.s3objectKey).first
             } catch {
-                print("Realm open failed: \(error)")
+                LogGeneral("Realm open failed: \(error.localizedDescription)")
             }
             let hasLocalMeta = (localMeta != nil)
 
@@ -708,7 +708,7 @@ final class CalendarDetailViewController: UIViewController {
 
             await MainActor.run { self.bindData() }
         } catch {
-            print("Failed to fetch post detail: \(error)")
+            LogNetwork("Failed to fetch post detail: \(error.localizedDescription)")
         }
     }
 

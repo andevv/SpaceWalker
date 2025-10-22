@@ -15,12 +15,9 @@ import RxSwift
 import ImageIO
 import UniformTypeIdentifiers
 import RealmSwift
-import os
 import Alamofire
 
 final class CalendarViewController: UIViewController {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "SpaceWalker", category: "CalendarViewController")
-
     // Loading overlay for calendar image fetching
     private let loadingContainer: UIView = {
         let v = UIView()
@@ -332,7 +329,7 @@ final class CalendarViewController: UIViewController {
     // 사용자의 특정 space 상태 상세 조회
     private func fetchSpaceActivities(spaceId: Int) {
         let requestStart = Date()
-        logger.info("[Network] fetchSpaceActivities start — spaceId=\(spaceId, privacy: .public)")
+        LogNetwork("[Network] fetchSpaceActivities start — spaceId=\(spaceId)")
 
         let visiblePage = calendar.currentPage
         let year = cal.component(.year, from: visiblePage)
@@ -353,7 +350,7 @@ final class CalendarViewController: UIViewController {
                 guard let self else { return }
 
                 let elapsed = Date().timeIntervalSince(requestStart)
-                self.logger.info("[Network] fetchSpaceActivities success — elapsed=\(elapsed, format: .fixed(precision: 2))s, dailyMission=\(response.dailyMission.title, privacy: .public), activitiesCount=\(response.activities.count, privacy: .public)")
+                LogNetwork("[Network] fetchSpaceActivities success — elapsed=\(String(format: "%.2f", elapsed))s, dailyMission=\(response.dailyMission.title), activitiesCount=\(response.activities.count)")
 
                 // 오늘의 미션
                 self.missionLabel.text = response.dailyMission.title
@@ -390,12 +387,12 @@ final class CalendarViewController: UIViewController {
                         resultQueue.async(flags: .barrier) {
                             resultMap[localDay] = DayPhoto(image: cached, postId: activity.postId)
                         }
-                        self.logger.debug("[Cache] hit — key=\(dayKeyString, privacy: .public)")
+                        LogNetwork("[Cache] hit — key=\(dayKeyString)")
                         continue
                     }
 
                     group.enter()
-                    self.logger.debug("[Image] start download — date=\(activity.date, privacy: .public), url=\(activity.photo, privacy: .public)")
+                    LogNetwork("[Image] start download — date=\(activity.date), url=\(activity.photo)")
                     self.loadImage(from: url) { [weak self] image in
                         defer { group.leave() }
                         guard let self = self else { return }
@@ -410,9 +407,9 @@ final class CalendarViewController: UIViewController {
                             resultQueue.async(flags: .barrier) {
                                 resultMap[localDay] = DayPhoto(image: image, postId: activity.postId)
                             }
-                            self.logger.debug("[Image] download success — mappedLocalDay=\(localDay as NSDate, privacy: .public), cacheKey=\(key, privacy: .public)")
+                            LogNetwork("[Image] download success — mappedLocalDay=\(localDay), cacheKey=\(key)")
                         } else {
-                            self.logger.error("[Image] download failed — url=\(activity.photo, privacy: .public)")
+                            LogNetwork("[Image] download failed — url=\(activity.photo)")
                         }
                     }
                 }
@@ -424,15 +421,14 @@ final class CalendarViewController: UIViewController {
                     self.hideCalendarLoading(expectedKey: expectedKey)
                     self.photos = resultMap
                     self.calendar.reloadData()
-                    self.logger.info("[Image] all downloads completed — count=\(resultMap.count, privacy: .public)")
+                    LogNetwork("[Image] all downloads completed — count=\(resultMap.count)")
                 }
 
             }, onFailure: { error in
                 let elapsed = Date().timeIntervalSince(requestStart)
                 self.hideCalendarLoading(expectedKey: self.currentFetchKey ?? "")
-                self.logger.error("[Network] fetchSpaceActivities failure — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(error.localizedDescription, privacy: .public)")
-
-                print("Space activities fetch failed:", error.localizedDescription)
+                LogNetwork("[Network] fetchSpaceActivities failure — elapsed=\(String(format: "%.2f", elapsed))s, error=\(error.localizedDescription)")
+                LogNetwork("Space activities fetch failed: \(error.localizedDescription)")
             })
             .disposed(by: disposeBag)
     }
@@ -440,7 +436,7 @@ final class CalendarViewController: UIViewController {
     // 서버에서 사용자가 속한 Space 목록을 불러와 칩 구성
     private func fetchMySpaces() {
         let requestStart = Date()
-        logger.info("[Network] fetchMySpaces start")
+        LogNetwork("[Network] fetchMySpaces start")
 
         repository.fetchMySpaces() // 실제 API 호출
             .observe(on: MainScheduler.instance)
@@ -450,7 +446,7 @@ final class CalendarViewController: UIViewController {
                 self.joinedSpaces = joinedSpaces
 
                 let elapsed = Date().timeIntervalSince(requestStart)
-                self.logger.info("[Network] fetchMySpaces success — elapsed=\(elapsed, format: .fixed(precision: 2))s, count=\(joinedSpaces.count, privacy: .public)")
+                LogNetwork("[Network] fetchMySpaces success — elapsed=\(String(format: "%.2f", elapsed))s, count=\(joinedSpaces.count)")
 
                 // 서버 응답 → 칩에 표시할 Space 이름만 추출
                 self.spaces = joinedSpaces.map { $0.name }
@@ -464,9 +460,8 @@ final class CalendarViewController: UIViewController {
 
             }, onFailure: { error in
                 let elapsed = Date().timeIntervalSince(requestStart)
-                self.logger.error("[Network] fetchMySpaces failure — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(error.localizedDescription, privacy: .public)")
-
-                print("MySpaces fetch failed:", error.localizedDescription)
+                LogNetwork("[Network] fetchMySpaces failure — elapsed=\(String(format: "%.2f", elapsed))s, error=\(error.localizedDescription)")
+                LogNetwork("MySpaces fetch failed: \(error.localizedDescription)")
             })
             .disposed(by: disposeBag)
     }
@@ -524,7 +519,7 @@ final class CalendarViewController: UIViewController {
         // 3) 선택된 space로 데이터 로드
         if joinedSpaces.indices.contains(selectedChipIndex) {
             let selected = joinedSpaces[selectedChipIndex]
-            logger.info("[UI] chipTapped — index=\(self.selectedChipIndex, privacy: .public), spaceId=\(selected.id, privacy: .public), name=\(selected.name, privacy: .public)")
+            LogUI("[UI] chipTapped — index=\(self.selectedChipIndex), spaceId=\(selected.id), name=\(selected.name)")
             fetchSpaceActivities(spaceId: selected.id)
         }
     }
@@ -1003,7 +998,7 @@ extension CalendarViewController {
                     DispatchQueue.main.async { completion(image) }
                 case .failure(let error):
                     // Optionally log using logger if available
-                    self?.logger.error("[AF] image request failed — url=\(url.absoluteString, privacy: .public), error=\(error.localizedDescription, privacy: .public)")
+                    LogNetwork("[AF] image request failed — url=\(url.absoluteString), error=\(error.localizedDescription)")
                     DispatchQueue.main.async { completion(nil) }
                 }
             }
@@ -1043,7 +1038,7 @@ extension CalendarViewController {
         // 4) Try appending 'Z' if missing
         if let d = iso.date(from: string + "Z") { return d }
 
-        logger.error("[DateParse] failed to parse UTC date — string=\(string, privacy: .public)")
+        LogGeneral("[DateParse] failed to parse UTC date — string=\(string)")
         return nil
     }
 }
@@ -1177,18 +1172,18 @@ extension CalendarViewController {
                 if let url = realm.configuration.fileURL {
                     #if targetEnvironment(simulator)
                     // 시뮬레이터: 이 경로는 macOS에서 직접 접근 가능 (Finder에서 열 수 있음)
-                    print("Realm file (Finder accessible): \(url.path)")
-                    print("Open in Finder with: open \"\(url.deletingLastPathComponent().path)\"")
+                    LogGeneral("Realm file (Finder accessible): \(url.path)")
+                    LogGeneral("Open in Finder with: open \"\(url.deletingLastPathComponent().path)\"")
                     #else
                     // 실기기: macOS Finder에서 직접 접근 불가. Files 앱 또는 Xcode > Devices and Simulators에서 컨테이너 다운로드 필요
-                    print("Realm file (on iOS device): \(url.path)")
-                    print("Tip: In Xcode, Window > Devices and Simulators > select device > Installed Apps > SpaceWalker > Download Container…")
+                    LogGeneral("Realm file (on iOS device): \(url.path)")
+                    LogGeneral("Tip: In Xcode, Window > Devices and Simulators > select device > Installed Apps > SpaceWalker > Download Container…")
                     #endif
                 }
             }
         } catch {
             // 개발 중 로깅
-            print("Realm write failed: \(error.localizedDescription)")
+            LogGeneral("Realm write failed: \(error.localizedDescription)")
         }
     }
 }
@@ -1224,7 +1219,7 @@ extension CalendarViewController: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("Location error: \(error.localizedDescription)")
+        LogGeneral("Location error: \(error.localizedDescription)")
     }
 }
 
@@ -1347,7 +1342,7 @@ extension CalendarViewController {
     private func startMissionSubmissionTransaction(spaceId: Int, image: UIImage, imageData: Data, mimeType: String, missionTitle: String) {
         if isSubmittingMission { return }
         isSubmittingMission = true
-        logger.info("[Mission] start submission transaction — spaceId=\(spaceId, privacy: .public), mime=\(mimeType, privacy: .public)")
+        LogNetwork("[Mission] start submission transaction — spaceId=\(spaceId), mime=\(mimeType)")
 
         // Record mimeType into pending meta for later Realm persistence
         if var pending = self.pendingPhotoMeta {
@@ -1399,16 +1394,16 @@ extension CalendarViewController {
                         .validate(statusCode: 200..<300)
                         .response { response in
                             if let err = response.error {
-                                self.logger.error("[S3] upload failed — status=\(response.response?.statusCode ?? -1), error=\(err.localizedDescription, privacy: .public)")
+                                LogNetwork("[S3] upload failed — status=\(response.response?.statusCode ?? -1), error=\(err.localizedDescription)")
                                 if let data = response.data, let body = String(data: data, encoding: .utf8) {
-                                    self.logger.error("[S3] upload error body — \(body, privacy: .public)")
+                                    LogNetwork("[S3] upload error body — \(body)")
                                 }
                                 single(.failure(err))
                                 return
                             }
                             let status = response.response?.statusCode ?? -1
                             if 200..<300 ~= status {
-                                self.logger.info("[S3] upload success — status=\(status)")
+                                LogNetwork("[S3] upload success — status=\(status)")
                                 
                                 // Persist metadata to Realm now with the real S3 key
                                 if let pending = self.pendingPhotoMeta {
@@ -1429,7 +1424,7 @@ extension CalendarViewController {
                                     })
                                     .disposed(by: self.disposeBag)
                             } else {
-                                self.logger.error("[S3] upload non-200 — status=\(status)")
+                                LogNetwork("[S3] upload non-200 — status=\(status)")
                                 single(.failure(NSError(domain: "CalendarVC", code: status, userInfo: [NSLocalizedDescriptionKey: "S3 업로드 실패 (\(status))"])) )
                             }
                         }
@@ -1443,7 +1438,7 @@ extension CalendarViewController {
             .subscribe(onSuccess: { [weak self] (resp: SpaceRepository.SubmitMissionResponse) in
                 guard let self = self else { return }
                 let elapsed = Date().timeIntervalSince(requestStart)
-                self.logger.info("[Mission] submit success — elapsed=\(elapsed, format: .fixed(precision: 2))s, success=\(resp.success)")
+                LogNetwork("[Mission] submit success — elapsed=\(String(format: "%.2f", elapsed))s, success=\(resp.success)")
                 self.activityIndicator.stopAnimating()
                 self.loadingContainer.isHidden = true
 
@@ -1466,9 +1461,9 @@ extension CalendarViewController {
             }, onFailure: { [weak self] err in
                 guard let self = self else { return }
                 let elapsed = Date().timeIntervalSince(requestStart)
-                self.logger.error("[Mission] submit failed — elapsed=\(elapsed, format: .fixed(precision: 2))s, error=\(err.localizedDescription, privacy: .public)")
+                LogNetwork("[Mission] submit failed — elapsed=\(String(format: "%.2f", elapsed))s, error=\(err.localizedDescription)")
                 if let serverBody = self.extractServerErrorMessage(from: err) {
-                    self.logger.error("[Mission] submit server error body — \(serverBody, privacy: .public)")
+                    LogNetwork("[Mission] submit server error body — \(serverBody)")
                 }
                 self.activityIndicator.stopAnimating()
                 self.loadingContainer.isHidden = true
