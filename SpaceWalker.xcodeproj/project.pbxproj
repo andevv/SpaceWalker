@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FE2793062EB1E096004CFA92 /* SkeletonView in Frameworks */ = {isa = PBXBuildFile; productRef = FE2793052EB1E096004CFA92 /* SkeletonView */; };
 		FE9B89962E8BE5030012E889 /* FSCalendar in Frameworks */ = {isa = PBXBuildFile; productRef = FE9B89952E8BE5030012E889 /* FSCalendar */; };
 		FED4A4802E96C16900BD493B /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = FED4A47F2E96C16900BD493B /* RealmSwift */; };
 		FED4A4842E96C73100BD493B /* RealmSwift in Embed Frameworks */ = {isa = PBXBuildFile; productRef = FED4A47F2E96C16900BD493B /* RealmSwift */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
@@ -71,6 +72,7 @@
 				FEFC87412E8A7627007A3685 /* Kingfisher in Frameworks */,
 				FED4A4922E9A8F6700BD493B /* FirebaseAnalytics in Frameworks */,
 				FED4A4802E96C16900BD493B /* RealmSwift in Frameworks */,
+				FE2793062EB1E096004CFA92 /* SkeletonView in Frameworks */,
 				FEFC874C2E8A7668007A3685 /* RxSwift in Frameworks */,
 				FEFC874A2E8A7668007A3685 /* RxCocoa in Frameworks */,
 				FED4A4942E9A8F6700BD493B /* FirebaseCrashlytics in Frameworks */,
@@ -131,6 +133,7 @@
 				FED4A47F2E96C16900BD493B /* RealmSwift */,
 				FED4A4912E9A8F6700BD493B /* FirebaseAnalytics */,
 				FED4A4932E9A8F6700BD493B /* FirebaseCrashlytics */,
+				FE2793052EB1E096004CFA92 /* SkeletonView */,
 			);
 			productName = SpaceWalker;
 			productReference = FED6050F2E88022000B216DD /* SpaceWalker.app */;
@@ -168,6 +171,7 @@
 				FE9B89942E8BE5030012E889 /* XCRemoteSwiftPackageReference "FSCalendar" */,
 				FED4A47E2E96C16900BD493B /* XCRemoteSwiftPackageReference "realm-swift" */,
 				FED4A4902E9A8F6700BD493B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				FE2793042EB1E096004CFA92 /* XCRemoteSwiftPackageReference "SkeletonView" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FED605102E88022000B216DD /* Products */;
@@ -464,6 +468,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		FE2793042EB1E096004CFA92 /* XCRemoteSwiftPackageReference "SkeletonView" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Juanpe/SkeletonView.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.31.0;
+			};
+		};
 		FE9B89942E8BE5030012E889 /* XCRemoteSwiftPackageReference "FSCalendar" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/WenchaoD/FSCalendar.git";
@@ -523,6 +535,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		FE2793052EB1E096004CFA92 /* SkeletonView */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE2793042EB1E096004CFA92 /* XCRemoteSwiftPackageReference "SkeletonView" */;
+			productName = SkeletonView;
+		};
 		FE9B89952E8BE5030012E889 /* FSCalendar */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FE9B89942E8BE5030012E889 /* XCRemoteSwiftPackageReference "FSCalendar" */;

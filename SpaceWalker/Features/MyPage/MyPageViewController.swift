@@ -469,13 +469,6 @@ final class MyPageViewController: UIViewController {
         self.avatarView.contentMode = .scaleAspectFill
         self.avatarView.tintColor = nil
         self.avatarView.backgroundColor = UIColor.systemGray5.withAlphaComponent(0.0)
-
-        // Determine original type from the last picked provider if available (handled in delegate)
-        // Here we default to jpeg for safety; the delegate will pass the correct type via a stored property if needed.
-        // For now, attempt best-effort encoding and upload.
-        // NOTE: The actual mime type detection occurs in the picker delegate using the NSItemProvider.
-
-        // No-op here; actual upload is triggered from picker delegate after detection.
     }
 
     // MARK: - 회원탈퇴 로직
