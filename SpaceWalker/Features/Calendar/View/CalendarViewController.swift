@@ -95,11 +95,9 @@ final class CalendarViewController: UIViewController {
     private let missionButton: UIButton = {
         var config = UIButton.Configuration.filled()
         config.title = "미션하러 가기"
-        // 에셋에 있는 named color 사용
         if let accent = UIColor(named: "AccentColor_066985") {
             config.baseBackgroundColor = accent
         } else {
-            // 혹시 컬러가 없을 때 대비한 기본값
             config.baseBackgroundColor = .systemBlue
         }
         config.baseForegroundColor = .white
@@ -120,35 +118,14 @@ final class CalendarViewController: UIViewController {
     private var currentUploadTask: Request?
 
     private var currentDailyMissionId: Int?
-    // Holds extracted metadata for the current capture until upload completes
-    private struct PendingPhotoMeta {
-        let image: UIImage
-        let capturedAt: Date
-        let width: Int
-        let height: Int
-        let location: CLLocation?
-        let spaceId: Int
-        let missionId: Int?
-        let missionTitle: String?
-        let mimeType: String?
-        let deviceName: String?
-    }
-    private var pendingPhotoMeta: PendingPhotoMeta?
+    private var pendingPhotoMeta: CalendarPendingPhotoMeta?
     // Tracks the most recent local metadata row for the current capture
     private var lastSavedPhotoObjectId: ObjectId?
 
     // Full-screen overlay option during submission
     private var isLoadingFullScreen: Bool = false
 
-    // Decoded image cache for the current app session (lightweight)
-    private let imageCache = NSCache<NSString, UIImage>()
-
-    /// 현재 페이지(월)의 날짜별 썸네일 + 게시물 식별자
-    private struct DayPhoto {
-        let image: UIImage
-        let postId: Int
-    }
-    private var photos: [Date: DayPhoto] = [:]
+    private var photos: [Date: CalendarDayPhoto] = [:]
     private let cal = Calendar.current
 
     // [Location+Save] 위치 권한/값
@@ -157,61 +134,56 @@ final class CalendarViewController: UIViewController {
     private var pendingOneShotLocation: Bool = false
     private var pendingCameraPresentation: Bool = false
 
-    // MARK: - Networking
+    // MARK: - Dependencies
     private let repository = SpaceRepository()
+    private let viewModel = CalendarViewModel()
     private let disposeBag = DisposeBag()
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-
         setupLayout()
         setupCalendar()
         refreshHeaderTitle()
-        imageCache.countLimit = 150 // up to 150 thumbnails in memory
 
         // 칩을 서버(더미)에서 받아와 구성
         fetchMySpaces()
+
+        prevButton.addTarget(self, action: #selector(prevMonth), for: .touchUpInside)
+        nextButton.addTarget(self, action: #selector(nextMonth), for: .touchUpInside)
+        missionButton.addTarget(self, action: #selector(didTapMission), for: .touchUpInside)
     }
 
     // MARK: - Layout
     private func setupLayout() {
-        // Scroll area (top content)
         view.addSubview(scrollView)
         scrollView.addSubview(contentView)
 
-        // 상단 콘텐츠를 contentView에 배치
         contentView.addSubview(titleLabel)
         contentView.addSubview(missionLabel)
         contentView.addSubview(chipContainer)
         chipContainer.addSubview(chipStack)
 
-        // 월 헤더 + 캘린더 (contentView 내부)
         contentView.addSubview(monthBar)
         monthBar.addSubview(prevButton)
         monthBar.addSubview(monthTitleLabel)
         monthBar.addSubview(nextButton)
         contentView.addSubview(calendar)
 
-        // 하단 고정 바
         view.addSubview(bottomBar)
         bottomBar.addSubview(missionButton)
 
-        // ScrollView constraints: safe area 상단부터 bottomBar 위까지
         scrollView.snp.makeConstraints { make in
             make.top.equalTo(view.safeAreaLayoutGuide.snp.top)
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(bottomBar.snp.top)
         }
         contentView.snp.makeConstraints { make in
-            // contentLayoutGuide에 맞추어 스크롤 콘텐츠 크기 제공
             make.edges.equalTo(scrollView.contentLayoutGuide)
-            // frameLayoutGuide의 폭과 동일하게 고정
             make.width.equalTo(scrollView.frameLayoutGuide)
         }
 
-        // 상단
         titleLabel.snp.makeConstraints { make in
             make.top.equalTo(contentView.snp.top).inset(20)
             make.leading.trailing.equalTo(contentView).inset(20)
@@ -221,7 +193,6 @@ final class CalendarViewController: UIViewController {
             make.leading.trailing.equalTo(titleLabel)
         }
 
-        // 칩 스택 레이아웃
         chipStack.axis = .horizontal
         chipStack.spacing = 8
         chipStack.alignment = .fill
@@ -238,7 +209,7 @@ final class CalendarViewController: UIViewController {
             make.height.equalTo(40)
         }
 
-        monthBar.snp.remakeConstraints { make in
+        monthBar.snp.makeConstraints { make in
             make.top.equalTo(chipContainer.snp.bottom).offset(32)
             make.leading.trailing.equalTo(contentView).inset(20)
             make.height.equalTo(24)
@@ -265,11 +236,9 @@ final class CalendarViewController: UIViewController {
             make.top.equalTo(monthBar.snp.bottom).offset(16)
             make.leading.trailing.equalTo(contentView).inset(10)
             self.calendarHeightConstraint = make.height.equalTo(320).constraint
-            // 스크롤 콘텐츠의 바닥은 캘린더 이후로 이어지도록 contentView의 bottom에 연결
             make.bottom.equalTo(contentView.snp.bottom).inset(20)
         }
 
-        // Loading overlay on calendar (오버레이는 전체 view에 붙이고, 캘린더 영역에 맞춰 제약)
         view.addSubview(loadingContainer)
         loadingContainer.addSubview(activityIndicator)
         loadingContainer.addSubview(uploadProgressView)
@@ -289,17 +258,12 @@ final class CalendarViewController: UIViewController {
             make.leading.trailing.equalToSuperview()
             make.bottom.equalTo(view.safeAreaLayoutGuide)
         }
-        // 버튼을 safe area 아래와 겹치지 않게, safe area 위 24pt에 배치
-        missionButton.snp.remakeConstraints { make in
+        missionButton.snp.makeConstraints { make in
             make.top.equalTo(bottomBar.snp.top).inset(12)
             make.leading.trailing.equalTo(bottomBar).inset(20)
             make.bottom.equalTo(view.safeAreaLayoutGuide).inset(24)
             make.height.equalTo(52)
         }
-
-        prevButton.addTarget(self, action: #selector(prevMonth), for: .touchUpInside)
-        nextButton.addTarget(self, action: #selector(nextMonth), for: .touchUpInside)
-        missionButton.addTarget(self, action: #selector(didTapMission), for: .touchUpInside)
     }
 
     private func setupCalendar() {
@@ -309,7 +273,6 @@ final class CalendarViewController: UIViewController {
         calendar.placeholderType = .none
         calendar.register(ThumbnailCalendarCell.self, forCellReuseIdentifier: ThumbnailCalendarCell.reuseID)
 
-        // 기본 선택/오늘 원 숨김
         calendar.appearance.selectionColor = .clear
         calendar.appearance.todaySelectionColor = .clear
         calendar.appearance.borderSelectionColor = .clear
@@ -344,20 +307,21 @@ final class CalendarViewController: UIViewController {
         // Show loading indicator for this fetch cycle
         self.showCalendarLoading(expectedKey: fetchKey)
 
-        repository.fetchSpaceActivities(spaceId: spaceId, year: year, month: month, timezone: timezone)
+        viewModel.fetchSpaceActivities(spaceId: spaceId, year: year, month: month, timezone: timezone)
             .observe(on: MainScheduler.instance)
-            .subscribe(onSuccess: { [weak self] response in
+            .subscribe(onSuccess: { [weak self] result in
                 guard let self else { return }
+                guard fetchKey == self.currentFetchKey else { return }
 
                 let elapsed = Date().timeIntervalSince(requestStart)
-                LogNetwork("[Network] fetchSpaceActivities success — elapsed=\(String(format: "%.2f", elapsed))s, dailyMission=\(response.dailyMission.title), activitiesCount=\(response.activities.count)")
+                LogNetwork("[Network] fetchSpaceActivities success — elapsed=\(String(format: "%.2f", elapsed))s, photosCount=\(result.photos.count)")
 
                 // 오늘의 미션
-                self.missionLabel.text = response.dailyMission.title
-                self.currentDailyMissionId = response.dailyMission.missionId
+                self.missionLabel.text = result.missionTitle
+                self.currentDailyMissionId = result.missionId
 
                 // Update mission button based on API-provided didMission (true = already completed today)
-                let didMission = response.didMission
+                let didMission = result.didMission
                 var btnConfig = self.missionButton.configuration
                 if didMission {
                     self.missionButton.isEnabled = false
@@ -368,61 +332,10 @@ final class CalendarViewController: UIViewController {
                 }
                 self.missionButton.configuration = btnConfig
 
-                // 활동 날짜별 썸네일 맵핑 (병렬 다운로드 + 일괄 갱신)
-                let expectedKey = fetchKey // 캡처: non-optional key
-                let group = DispatchGroup()
-                var resultMap: [Date: DayPhoto] = [:]
-                let resultQueue = DispatchQueue(label: "calendar.photos.result", attributes: .concurrent)
-
-                for activity in response.activities {
-                    guard let utcDate = self.parseActivityUTCDate(activity.date) else { continue }
-                    guard let url = URL(string: activity.photo) else { continue }
-
-                    // Lightweight in-memory cache lookup (per local day using Calendar.current)
-                    let dayKeyString = "space:\(spaceId)|day:\(self.dayString(for: self.cal.startOfDay(for: utcDate)))"
-                    if let cached = self.imageCache.object(forKey: dayKeyString as NSString) {
-                        // 캐시 적중: 결과에 즉시 반영하고 다운로드 생략
-                        let localDay = self.cal.startOfDay(for: utcDate)
-                        // 활동의 postId를 안전하게 언랩하여 DayPhoto로 저장 (캐시 이미지를 활용)
-                        resultQueue.async(flags: .barrier) {
-                            resultMap[localDay] = DayPhoto(image: cached, postId: activity.postId)
-                        }
-                        LogNetwork("[Cache] hit — key=\(dayKeyString)")
-                        continue
-                    }
-
-                    group.enter()
-                    LogNetwork("[Image] start download — date=\(activity.date), url=\(activity.photo)")
-                    self.loadImage(from: url) { [weak self] image in
-                        defer { group.leave() }
-                        guard let self = self else { return }
-                        // 요청 키가 바뀌었으면(월/칩 변경) 무시
-                        guard expectedKey == self.currentFetchKey else { return }
-                        if let image {
-                            let localDay = self.cal.startOfDay(for: utcDate)
-                            // 캐시에 저장 후 결과 반영 (동시 접근 보호)
-                            let key = "space:\(spaceId)|day:\(self.dayString(for: localDay))"
-                            self.imageCache.setObject(image, forKey: key as NSString)
-                            // 활동의 postId를 안전하게 언랩하여 DayPhoto로 저장
-                            resultQueue.async(flags: .barrier) {
-                                resultMap[localDay] = DayPhoto(image: image, postId: activity.postId)
-                            }
-                            LogNetwork("[Image] download success — mappedLocalDay=\(localDay), cacheKey=\(key)")
-                        } else {
-                            LogNetwork("[Image] download failed — url=\(activity.photo)")
-                        }
-                    }
-                }
-
-                group.notify(queue: .main) {
-                    // 요청 키가 바뀌었으면(월/칩 변경) 무시
-                    guard expectedKey == self.currentFetchKey else { return }
-                    // 결과를 한 번에 반영하고 캘린더 갱신
-                    self.hideCalendarLoading(expectedKey: expectedKey)
-                    self.photos = resultMap
-                    self.calendar.reloadData()
-                    LogNetwork("[Image] all downloads completed — count=\(resultMap.count)")
-                }
+                self.hideCalendarLoading(expectedKey: fetchKey)
+                self.photos = result.photos
+                self.calendar.reloadData()
+                LogNetwork("[Image] all downloads completed — count=\(result.photos.count)")
 
             }, onFailure: { error in
                 let elapsed = Date().timeIntervalSince(requestStart)
@@ -438,7 +351,7 @@ final class CalendarViewController: UIViewController {
         let requestStart = Date()
         LogNetwork("[Network] fetchMySpaces start")
 
-        repository.fetchMySpaces() // 실제 API 호출
+        viewModel.fetchMySpaces()
             .observe(on: MainScheduler.instance)
             .subscribe(onSuccess: { [weak self] joinedSpaces in
                 guard let self else { return }
@@ -757,34 +670,26 @@ final class CalendarViewController: UIViewController {
         present(ac, animated: true)
     }
 
-    private func refreshHeaderTitle() {
-        let y = cal.component(.year, from: calendar.currentPage)
-        let m = cal.component(.month, from: calendar.currentPage)
-        monthTitleLabel.text = String(format: "%d년 %d월", y, m)
-    }
-
     // MARK: - Chip helpers
     private func makeChipButton(title: String, selected: Bool) -> UIButton {
         var config = UIButton.Configuration.plain()
         config.title = title
         config.contentInsets = .init(top: 8, leading: 14, bottom: 8, trailing: 14)
-        config.background = .clear()                 // 배경은 configuration로
-        config.background.cornerRadius = 16          // 배경 라운드
+        config.background = .clear()
+        config.background.cornerRadius = 16
 
         let b = UIButton(configuration: config)
         b.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
 
-        // 레이어도 라운드 + 보더 (클리핑 필수)
         b.layer.cornerRadius = 16
         b.layer.cornerCurve = .continuous
         b.clipsToBounds = true
         b.layer.borderWidth = 1
 
         let accent = UIColor(named: "AccentColor_066985") ?? .systemBlue
-
         b.configurationUpdateHandler = { btn in
             var c = btn.configuration ?? .plain()
-            c.background.cornerRadius = 16           // 상태 갱신 시에도 유지
+            c.background.cornerRadius = 16
             if btn.isSelected {
                 c.baseForegroundColor = .white
                 c.background.backgroundColor = accent
@@ -802,20 +707,12 @@ final class CalendarViewController: UIViewController {
         return b
     }
 
-    private func dateFor(day: Int, in page: Date) -> Date? {
-        let y = cal.component(.year, from: page)
-        let m = cal.component(.month, from: page)
-        var comps = DateComponents(year: y, month: m, day: day)
-        return cal.date(from: comps)
+    private func refreshHeaderTitle() {
+        let y = cal.component(.year, from: calendar.currentPage)
+        let m = cal.component(.month, from: calendar.currentPage)
+        monthTitleLabel.text = String(format: "%d년 %d월", y, m)
     }
-    
-    private func dayString(for date: Date) -> String {
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "en_US_POSIX")
-        df.timeZone = .current
-        df.dateFormat = "yyyy-MM-dd"
-        return df.string(from: date)
-    }
+
 }
 
 // MARK: - FSCalendar DataSource / Delegate
@@ -932,16 +829,16 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
             let missionTitle = self.missionLabel.text
             let deviceName = (metadata?[kCGImagePropertyTIFFDictionary as String] as? [String: Any])?[kCGImagePropertyTIFFModel as String] as? String ?? UIDevice.current.model
             // mimeType will be known when encoding for upload
-            self.pendingPhotoMeta = PendingPhotoMeta(image: image,
-                                                     capturedAt: capturedAt,
-                                                     width: pixelW,
-                                                     height: pixelH,
-                                                     location: location,
-                                                     spaceId: spaceId,
-                                                     missionId: missionId,
-                                                     missionTitle: missionTitle,
-                                                     mimeType: nil,
-                                                     deviceName: deviceName)
+            self.pendingPhotoMeta = CalendarPendingPhotoMeta(image: image,
+                                                             capturedAt: capturedAt,
+                                                             width: pixelW,
+                                                             height: pixelH,
+                                                             location: location,
+                                                             spaceId: spaceId,
+                                                             missionId: missionId,
+                                                             missionTitle: missionTitle,
+                                                             mimeType: nil,
+                                                             deviceName: deviceName)
 
             // 앨범 저장 권한 확인 후, 위치 포함 저장 시도
             self.requestPhotoAddPermission { granted in
@@ -972,9 +869,9 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
     }
 }
 
-// MARK: - Image Loading
+// MARK: - Networking Utilities
 extension CalendarViewController {
-    // Alamofire 전용 세션 (URLCache 설정)
+    // Upload 전용 Alamofire 세션 (URLCache 설정)
     private static let afSession: Session = {
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .returnCacheDataElseLoad
@@ -986,61 +883,6 @@ extension CalendarViewController {
         return Session(configuration: config)
     }()
 
-    /// 간단한 비동기 이미지 로더
-    fileprivate func loadImage(from url: URL, completion: @escaping (UIImage?) -> Void) {
-        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 30)
-        CalendarViewController.afSession.request(request)
-            .validate(statusCode: 200..<400)
-            .responseData(queue: .global(qos: .userInitiated)) { [weak self] response in
-                switch response.result {
-                case .success(let data):
-                    let image = UIImage(data: data)
-                    DispatchQueue.main.async { completion(image) }
-                case .failure(let error):
-                    // Optionally log using logger if available
-                    LogNetwork("[AF] image request failed — url=\(url.absoluteString), error=\(error.localizedDescription)")
-                    DispatchQueue.main.async { completion(nil) }
-                }
-            }
-    }
-}
-
-// MARK: - Date Parsing (UTC -> Date)
-extension CalendarViewController {
-    /// 서버에서 오는 UTC 문자열(타임존 표기 없을 수 있음)을 Date로 파싱
-    fileprivate func parseActivityUTCDate(_ string: String) -> Date? {
-        // 1) ISO8601 with fractional seconds (UTC)
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        iso.timeZone = TimeZone(secondsFromGMT: 0)
-        if let d = iso.date(from: string) { return d }
-
-        // 2) ISO8601 without fractional seconds (UTC)
-        let iso2 = ISO8601DateFormatter()
-        iso2.formatOptions = [.withInternetDateTime]
-        iso2.timeZone = TimeZone(secondsFromGMT: 0)
-        if let d = iso2.date(from: string) { return d }
-
-        // 3) Explicit formats assuming UTC
-        let fmts = [
-            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
-            "yyyy-MM-dd'T'HH:mm:ss.SSS",
-            "yyyy-MM-dd'T'HH:mm:ss"
-        ]
-        let df = DateFormatter()
-        df.locale = Locale(identifier: "en_US_POSIX")
-        df.timeZone = TimeZone(secondsFromGMT: 0)
-        for f in fmts {
-            df.dateFormat = f
-            if let d = df.date(from: string) { return d }
-        }
-
-        // 4) Try appending 'Z' if missing
-        if let d = iso.date(from: string + "Z") { return d }
-
-        LogGeneral("[DateParse] failed to parse UTC date — string=\(string)")
-        return nil
-    }
 }
 
 // MARK: - Save with Location (PHPhotoLibrary)
@@ -1346,16 +1188,16 @@ extension CalendarViewController {
 
         // Record mimeType into pending meta for later Realm persistence
         if var pending = self.pendingPhotoMeta {
-            self.pendingPhotoMeta = PendingPhotoMeta(image: pending.image,
-                                                     capturedAt: pending.capturedAt,
-                                                     width: pending.width,
-                                                     height: pending.height,
-                                                     location: pending.location,
-                                                     spaceId: pending.spaceId,
-                                                     missionId: pending.missionId,
-                                                     missionTitle: pending.missionTitle,
-                                                     mimeType: mimeType,
-                                                     deviceName: pending.deviceName)
+            self.pendingPhotoMeta = CalendarPendingPhotoMeta(image: pending.image,
+                                                             capturedAt: pending.capturedAt,
+                                                             width: pending.width,
+                                                             height: pending.height,
+                                                             location: pending.location,
+                                                             spaceId: pending.spaceId,
+                                                             missionId: pending.missionId,
+                                                             missionTitle: pending.missionTitle,
+                                                             mimeType: mimeType,
+                                                             deviceName: pending.deviceName)
         }
 
         // Expand overlay to full screen during submission
@@ -1513,4 +1355,3 @@ extension CalendarViewController {
         }
     }
 }
-
