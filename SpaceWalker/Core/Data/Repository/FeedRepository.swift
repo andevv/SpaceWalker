@@ -1,3 +1,10 @@
+//
+//  FeedRepository.swift
+//  SpaceWalker
+//
+//  Created by andev on 9/30/25.
+//
+
 import Foundation
 import RxSwift
 import Alamofire
