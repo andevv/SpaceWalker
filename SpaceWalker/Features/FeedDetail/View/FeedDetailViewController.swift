@@ -8,35 +8,15 @@
 import UIKit
 import SnapKit
 import RxSwift
+import RxCocoa
 import Kingfisher
-
-struct FeedDetailModel {
-    var image: UIImage?
-    var imageURL: URL?
-    var likeCount: Int
-    var liked: Bool
-    var authorName: String
-    var missionTitle: String
-    var authorProfileURL: URL?
-
-    init(image: UIImage?, likeCount: Int, liked: Bool, authorName: String, missionTitle: String, imageURL: URL? = nil, authorProfileURL: URL? = nil) {
-        self.image = image
-        self.likeCount = likeCount
-        self.liked = liked
-        self.authorName = authorName
-        self.missionTitle = missionTitle
-        self.imageURL = imageURL
-        self.authorProfileURL = authorProfileURL
-    }
-}
 
 final class FeedDetailViewController: UIViewController {
 
     // MARK: - Dependencies
-    private var model: FeedDetailModel
-    private var apiPostId: Int64?
-    private let feedRepository = FeedRepository()
+    private let viewModel: FeedDetailViewModel
     private let disposeBag = DisposeBag()
+    private let viewDidLoadRelay = PublishRelay<Void>()
 
     // MARK: - UI
     private let scrollView = UIScrollView()
@@ -60,7 +40,7 @@ final class FeedDetailViewController: UIViewController {
 
     // MARK: - Init
     init(model: FeedDetailModel) {
-        self.model = model
+        self.viewModel = FeedDetailViewModel(initialModel: model, postId: nil)
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
@@ -69,24 +49,34 @@ final class FeedDetailViewController: UIViewController {
             sheet.preferredCornerRadius = 16
         }
     }
+
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     convenience init(postId: Int) {
         let placeholder = FeedDetailModel(image: nil, likeCount: 0, liked: false, authorName: "", missionTitle: "")
-        self.init(model: placeholder)
-        self.apiPostId = Int64(postId)
+        self.init(viewModel: FeedDetailViewModel(initialModel: placeholder, postId: postId))
+    }
+
+    private init(viewModel: FeedDetailViewModel) {
+        self.viewModel = viewModel
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .pageSheet
+        if let sheet = sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = 16
+        }
     }
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+
         setupUI()
-        if let postId = apiPostId {
-            fetchFeedDetail(postId: Int(postId))
-        } else {
-            bindData()
-        }
+        bindViewModel()
+
+        viewDidLoadRelay.accept(())
     }
 
     // MARK: - Setup
@@ -101,7 +91,6 @@ final class FeedDetailViewController: UIViewController {
             make.width.equalTo(scrollView.snp.width)
         }
 
-        // 이미지
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = true
         contentView.addSubview(imageView)
@@ -110,12 +99,10 @@ final class FeedDetailViewController: UIViewController {
             make.height.equalTo(imageView.snp.width).multipliedBy(4.0/3.0)
         }
 
-        // 좋아요
         likeRow.axis = .horizontal
         likeRow.spacing = 8
         likeRow.alignment = .center
 
-        // 하트 아이콘 찌그러짐 방지
         likeIcon.tintColor = .secondaryLabel
         likeIcon.contentMode = .scaleAspectFit
         likeIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
@@ -128,7 +115,6 @@ final class FeedDetailViewController: UIViewController {
             make.top.equalTo(imageView.snp.bottom).offset(12)
             make.leading.trailing.equalToSuperview().inset(20)
         }
-        // 정사각 사이즈 고정
         likeIcon.snp.makeConstraints { make in
             make.width.height.equalTo(18)
         }
@@ -144,7 +130,6 @@ final class FeedDetailViewController: UIViewController {
             make.height.equalTo(1)
         }
 
-        // 촬영자
         shooterTitle.text = "촬영자"
         shooterTitle.font = .systemFont(ofSize: 15, weight: .semibold)
         shooterTitle.textColor = .secondaryLabel
@@ -180,7 +165,6 @@ final class FeedDetailViewController: UIViewController {
             make.height.equalTo(1)
         }
 
-        // 미션
         missionCaption.text = "수행한 미션"
         missionCaption.font = .systemFont(ofSize: 14, weight: .regular)
         missionCaption.textColor = .secondaryLabel
@@ -197,8 +181,19 @@ final class FeedDetailViewController: UIViewController {
         missionTitleLabel.snp.makeConstraints { make in
             make.top.equalTo(missionCaption.snp.bottom).offset(6)
             make.leading.trailing.equalToSuperview().inset(20)
-            make.bottom.equalToSuperview().inset(24) // scroll 마지막
+            make.bottom.equalToSuperview().inset(24)
         }
+    }
+
+    private func bindViewModel() {
+        let input = FeedDetailViewModel.Input(viewDidLoad: viewDidLoadRelay.asObservable())
+        let output = viewModel.transform(input: input)
+
+        output.detail
+            .drive(onNext: { [weak self] model in
+                self?.bindData(model)
+            })
+            .disposed(by: disposeBag)
     }
 
     private func updateLikeIcon(forCount count: Int) {
@@ -211,11 +206,11 @@ final class FeedDetailViewController: UIViewController {
         }
     }
 
-    private func bindData() {
+    private func bindData(_ model: FeedDetailModel) {
         imageView.image = model.image
         likeLabel.text = "\(model.likeCount)개의 좋아요"
         shooterName.text = model.authorName
-        
+
         if let url = model.authorProfileURL {
             let placeholder = UIImage(systemName: "person.circle")?.withRenderingMode(.alwaysTemplate)
             shooterIcon.tintColor = .systemGray3
@@ -224,51 +219,8 @@ final class FeedDetailViewController: UIViewController {
             shooterIcon.image = UIImage(systemName: "person.circle.fill")
             shooterIcon.tintColor = .systemBlue
         }
-        
+
         missionTitleLabel.text = model.missionTitle
         updateLikeIcon(forCount: model.likeCount)
-
-        // Load image from URL if needed
-        if model.image == nil, let url = model.imageURL {
-            loadImage(from: url)
-        }
-    }
-
-    private func fetchFeedDetail(postId: Int) {
-        feedRepository.fetchFeedDetail(postId: postId)
-            .observe(on: MainScheduler.instance)
-            .subscribe(onSuccess: { [weak self] dto in
-                guard let self = self else { return }
-                let imageURL = URL(string: dto.photoUrl)
-                let updated = FeedDetailModel(
-                    image: nil,
-                    likeCount: dto.likeCount,
-                    liked: dto.liked,
-                    authorName: dto.author.nickname,
-                    missionTitle: dto.dailyMission.title,
-                    imageURL: imageURL,
-                    authorProfileURL: dto.author.profileImageUrl.flatMap(URL.init(string:))
-                )
-                self.model = updated
-                self.bindData()
-            }, onFailure: { [weak self] error in
-                print("[FeedDetail] fetch error: \(error)")
-                self?.bindData()
-            })
-            .disposed(by: disposeBag)
-    }
-
-    private func loadImage(from url: URL) {
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self else { return }
-            if let data = data, let image = UIImage(data: data) {
-                DispatchQueue.main.async {
-                    self.model.image = image
-                    self.imageView.image = image
-                }
-            }
-        }
-        task.resume()
     }
 }
-
