@@ -1,3 +1,10 @@
+//
+//  EditNicknameViewController.swift
+//  SpaceWalker
+//
+//  Created by andev on 9/30/25.
+//
+
 import UIKit
 import SnapKit
 import RxSwift
