@@ -7,17 +7,17 @@
 
 import UIKit
 import SnapKit
-import RxSwift
 
 final class EditNicknameViewController: UIViewController, UIGestureRecognizerDelegate {
 
     // MARK: - Public API
     init(currentNickname: String?, onSave: @escaping (String, @escaping (Bool) -> Void) -> Void) {
-        self.onSave = onSave
-        self.originalNickname = (currentNickname ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        self.viewModel = EditNicknameViewModel(currentNickname: currentNickname, onSave: onSave)
         super.init(nibName: nil, bundle: nil)
+
         self.textField.text = currentNickname
-        self.updateAllValidationStates(for: currentNickname ?? "")
+        applyValidationState(viewModel.currentValidationState())
+
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
             sheet.detents = [.medium(), .large()]
@@ -26,14 +26,11 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
             sheet.selectedDetentIdentifier = .medium
         }
     }
+
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    // MARK: - Callbacks
-    private let onSave: (String, @escaping (Bool) -> Void) -> Void
-    private let originalNickname: String
-
-    // MARK: - DisposeBag
-    private let disposeBag = DisposeBag()
+    // MARK: - Dependencies
+    private let viewModel: EditNicknameViewModel
 
     // MARK: - UI Elements
     private let scrollView = UIScrollView()
@@ -101,10 +98,12 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
         view.backgroundColor = .systemBackground
         setupLayout()
         bind()
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
         tap.delegate = self
+
         scrollView.keyboardDismissMode = .interactive
         scrollView.delaysContentTouches = false
     }
@@ -117,20 +116,17 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Expand to large to avoid detent change overlapping with keyboard presentation
         if let sheet = sheetPresentationController {
             sheet.animateChanges {
                 sheet.selectedDetentIdentifier = .large
             }
         }
-        // Give the text field focus slightly after layout settles
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             self?.textField.becomeFirstResponder()
         }
     }
 
     private func setupLayout() {
-        // Base scroll container
         view.addSubview(scrollView)
         scrollView.addSubview(contentView)
         scrollView.snp.makeConstraints { make in
@@ -141,7 +137,6 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
             make.width.equalTo(scrollView.snp.width)
         }
 
-        // Add subviews to contentView
         contentView.addSubview(titleLabel)
         contentView.addSubview(subtitleLabel)
         contentView.addSubview(textField)
@@ -184,15 +179,14 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
     }
 
     private func bind() {
-        // Text change handling
         textField.addTarget(self, action: #selector(textChanged), for: .editingChanged)
         textField.addTarget(self, action: #selector(didEndOnExit), for: .editingDidEndOnExit)
         saveButton.addTarget(self, action: #selector(didTapSave), for: .touchUpInside)
     }
 
     @objc private func textChanged() {
-        let text = textField.text ?? ""
-        updateAllValidationStates(for: text)
+        let state = viewModel.updateText(textField.text ?? "")
+        applyValidationState(state)
     }
 
     @objc private func didEndOnExit() {
@@ -200,32 +194,47 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
     }
 
     @objc private func didTapSave() {
-        let newName = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard validateAll(newName) else { return }
-        setSaving(true)
-        // 상위에서 API 호출을 수행하고 성공 여부를 completion으로 전달
-        onSave(newName) { [weak self] success in
-            guard let self = self else { return }
-            self.setSaving(false)
-            if success {
-                let ac = UIAlertController(title: "완료", message: "닉네임이 변경되었습니다.", preferredStyle: .alert)
-                ac.addAction(UIAlertAction(title: "확인", style: .default, handler: { [weak self] _ in
-                    self?.dismiss(animated: true)
-                }))
-                self.present(ac, animated: true)
-            } else {
-                let ac = UIAlertController(title: "변경 실패", message: "닉네임 변경에 실패했습니다. 잠시 후 다시 시도해주세요.", preferredStyle: .alert)
-                ac.addAction(UIAlertAction(title: "확인", style: .default))
-                self.present(ac, animated: true)
+        viewModel.save { [weak self] result in
+            guard let self else { return }
+
+            DispatchQueue.main.async {
+                self.setSavingUI(self.viewModel.isSaving)
+                self.applyValidationState(self.viewModel.currentValidationState())
+
+                switch result {
+                case .invalid:
+                    break
+                case .success:
+                    let ac = UIAlertController(title: "완료", message: "닉네임이 변경되었습니다.", preferredStyle: .alert)
+                    ac.addAction(UIAlertAction(title: "확인", style: .default, handler: { [weak self] _ in
+                        self?.dismiss(animated: true)
+                    }))
+                    self.present(ac, animated: true)
+                case .failure:
+                    let ac = UIAlertController(title: "변경 실패", message: "닉네임 변경에 실패했습니다. 잠시 후 다시 시도해주세요.", preferredStyle: .alert)
+                    ac.addAction(UIAlertAction(title: "확인", style: .default))
+                    self.present(ac, animated: true)
+                }
             }
         }
+        setSavingUI(viewModel.isSaving)
+        applyValidationState(viewModel.currentValidationState())
     }
 
-    private func setSaving(_ saving: Bool) {
+    private func setSavingUI(_ saving: Bool) {
         saveButton.isEnabled = !saving
         var cfg = saveButton.configuration ?? .filled()
         cfg.showsActivityIndicator = saving
         saveButton.configuration = cfg
+    }
+
+    private func applyValidationState(_ state: EditNicknameValidationState) {
+        countLabel.text = state.countText
+        lengthRule.isSatisfied = state.isLengthValid
+        charsetRule.isSatisfied = state.isCharsetValid
+        noSpaceRule.isSatisfied = state.isNoSpaceValid
+        noEmojiRule.isSatisfied = state.isNoEmojiValid
+        saveButton.isEnabled = state.canSave
     }
 
     @objc private func dismissKeyboard() {
@@ -236,50 +245,6 @@ final class EditNicknameViewController: UIViewController, UIGestureRecognizerDel
         if touch.view is UIControl { return false }
         if let v = touch.view, v.isDescendant(of: textField) { return false }
         return true
-    }
-
-    // MARK: - Validation
-    private func updateAllValidationStates(for text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        countLabel.text = "\(trimmed.count)/20"
-        lengthRule.isSatisfied = Self.validateLength(trimmed)
-        noSpaceRule.isSatisfied = Self.validateNoSpace(trimmed)
-        noEmojiRule.isSatisfied = Self.validateNoEmoji(trimmed)
-        charsetRule.isSatisfied = Self.validateAllowedCharset(trimmed)
-        // 동일 닉네임일 경우 저장 비활성화
-        saveButton.isEnabled = validateAll(trimmed) && trimmed != originalNickname
-    }
-
-    private func validateAll(_ text: String) -> Bool {
-        return Self.validateLength(text)
-        && Self.validateNoSpace(text)
-        && Self.validateNoEmoji(text)
-        && Self.validateAllowedCharset(text)
-    }
-
-    private static func validateLength(_ text: String) -> Bool {
-        return (2...20).contains(text.count)
-    }
-
-    private static func validateNoSpace(_ text: String) -> Bool {
-        return !text.contains { $0.isWhitespace }
-    }
-
-    private static func validateNoEmoji(_ text: String) -> Bool {
-        // Approximate emoji detection: any scalar with isEmoji and (presentation or modifier)
-        for scalar in text.unicodeScalars {
-            if scalar.properties.isEmoji && (scalar.properties.isEmojiPresentation || scalar.value >= 0x238d) {
-                return false
-            }
-        }
-        return true
-    }
-
-    private static func validateAllowedCharset(_ text: String) -> Bool {
-        if text.isEmpty { return false }
-        // Allowed: Letters (includes Korean), digits, '-' and '_'
-        let allowed = CharacterSet.letters.union(.decimalDigits).union(CharacterSet(charactersIn: "-_"))
-        return text.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 }
 
