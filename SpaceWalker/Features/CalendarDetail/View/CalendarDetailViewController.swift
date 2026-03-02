@@ -33,7 +33,6 @@ final class CalendarDetailViewController: UIViewController {
     private let imageView = UIImageView()
 
     // 날짜 / 미션
-    private let dateRow = UIStackView()
     private let dateIcon = UIImageView(image: UIImage(systemName: "calendar"))
     private let dateLabel = UILabel()
     private let missionCaption = UILabel()
@@ -136,18 +135,26 @@ final class CalendarDetailViewController: UIViewController {
             make.height.equalTo(imageView.snp.width).multipliedBy(4.0/3.0)
         }
 
-        dateRow.axis = .horizontal
-        dateRow.spacing = 8
         dateIcon.tintColor = .secondaryLabel
         dateIcon.contentMode = .scaleAspectFit
+        dateIcon.setContentHuggingPriority(.required, for: .horizontal)
+        dateIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
         dateLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         dateLabel.textColor = .label
+        dateLabel.numberOfLines = 1
+        dateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        contentView.addSubview(dateRow)
-        [dateIcon, dateLabel].forEach { dateRow.addArrangedSubview($0) }
-        dateRow.snp.makeConstraints { make in
+        contentView.addSubview(dateIcon)
+        contentView.addSubview(dateLabel)
+        dateIcon.snp.makeConstraints { make in
             make.top.equalTo(imageView.snp.bottom).offset(16)
-            make.leading.trailing.equalToSuperview().inset(20)
+            make.leading.equalToSuperview().inset(20)
+            make.width.height.equalTo(16)
+        }
+        dateLabel.snp.makeConstraints { make in
+            make.centerY.equalTo(dateIcon)
+            make.leading.equalTo(dateIcon.snp.trailing).offset(6)
+            make.trailing.lessThanOrEqualToSuperview().inset(20)
         }
 
         missionCaption.text = "오늘의 미션"
@@ -161,7 +168,7 @@ final class CalendarDetailViewController: UIViewController {
         contentView.addSubview(missionCaption)
         contentView.addSubview(missionTitleLabel)
         missionCaption.snp.makeConstraints { make in
-            make.top.equalTo(dateRow.snp.bottom).offset(12)
+            make.top.equalTo(dateIcon.snp.bottom).offset(12)
             make.leading.trailing.equalToSuperview().inset(20)
         }
         missionTitleLabel.snp.makeConstraints { make in
