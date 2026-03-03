@@ -5,6 +5,18 @@
 - **주요 역할**: iOS 클라이언트 개발 (UIKit + Rx), 백엔드 연동, UX 설계  
 - **타깃**: iOS 16+, Xcode 15+
 
+| Login | Calendar | Feed | Feed Detail |
+|------|------|------|------|
+| <img width="200" src="https://github.com/user-attachments/assets/81b02ccd-39d0-44ce-baf7-ba328a9731cc" /> | <img width="200" src="https://github.com/user-attachments/assets/3cfeebba-0964-4455-a5b4-0f3a369c72ce" /> | <img width="200" src="https://github.com/user-attachments/assets/43f325c2-3085-4a44-b8f1-7e78b3fe2695" /> | <img width="200" src="https://github.com/user-attachments/assets/31ce294e-33b7-405e-9f5f-449e965a71dc" /> | 
+
+| Map | Calendar Detail | Calendar Detail - 2 | My Page |
+|------|------|------|------|
+| <img width="200" src="https://github.com/user-attachments/assets/ac62e8c1-38f9-407d-b525-ad69e9489693" /> | <img width="200" src="https://github.com/user-attachments/assets/adca53ee-88b1-4c8e-a1f8-14fb0152b070" /> | <img width="200" src="https://github.com/user-attachments/assets/aff3da4b-8167-4678-aa46-e380f516bec2" /> | <img width="200" src="https://github.com/user-attachments/assets/2dbdb77c-fd83-4625-bbf8-9d72d0119dea" /> |
+
+| My Page - Edit Nickname | My Page - Privacy Policy | My Page - Terms | My Page - OSS License|
+|------|------|------|------|
+| <img width="200" src="https://github.com/user-attachments/assets/c0962d2a-8c52-41e1-9c03-683a73a8bea5" /> | <img width="200" src="https://github.com/user-attachments/assets/7971b45c-60cc-4d7d-90f6-0dfec3696325" /> | <img width="200" src="https://github.com/user-attachments/assets/42e50946-449a-4ce5-8f87-eeedb032a1f4" /> | <img width="200" src="https://github.com/user-attachments/assets/71dd09d8-9506-43e5-9e4e-d5e6c74e0674" /> |
+
 ## 핵심 기능
 - **Apple 로그인**: `AuthenticationServices`를 이용해 애플 계정으로 로그인. 토큰 저장 후 자동 세션 유지.
 - **Space 선택/참여**: 서버에서 내려주는 Space 리스트(최대 3개 선택)를 Rx 바인딩으로 처리. 유효하지 않은 ID 에러 핸들링 포함.
