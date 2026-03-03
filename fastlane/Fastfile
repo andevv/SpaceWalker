@@ -1,0 +1,62 @@
+# fastlane/Fastfile
+
+default_platform(:ios)
+
+platform :ios do
+  # -----------------------------
+  # Config
+  # -----------------------------
+  APP_SCHEME  = "SpaceWalker"
+  XCODEPROJ   = "SpaceWalker.xcodeproj"
+  BUILD_DIR   = "build"
+  IPA_NAME    = "SpaceWalker.ipa"
+
+  # -----------------------------
+  # Private lanes
+  # -----------------------------
+  private_lane :asc_api_key do
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_KEY_P8_BASE64"),
+      is_key_content_base64: true
+    )
+  end
+
+  private_lane :set_timestamp_build_number do
+    increment_build_number(
+      xcodeproj: XCODEPROJ,
+      build_number: Time.now.strftime("%Y%m%d%H%M")
+    )
+  end
+
+  # -----------------------------
+  # Public lanes
+  # -----------------------------
+  desc "CI용 빌드/아카이브"
+  lane :build_ci do
+    build_app(
+      scheme: APP_SCHEME,
+      clean: true,
+      output_directory: BUILD_DIR,
+      output_name: IPA_NAME
+    )
+  end
+
+  desc "TestFlight Upload"
+  lane :beta do
+    asc_api_key
+    set_timestamp_build_number
+
+    build_app(
+      scheme: APP_SCHEME,
+      clean: true,
+      output_directory: BUILD_DIR,
+      output_name: IPA_NAME
+    )
+
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
