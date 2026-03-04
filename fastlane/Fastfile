@@ -12,6 +12,10 @@ platform :ios do
   IPA_NAME    = "SpaceWalker.ipa"
   BUNDLE_ID   = "com.andev.SpaceWalker"
 
+  # CI keychain
+  CI_KEYCHAIN_NAME = "ci.keychain"
+  CI_KEYCHAIN_PATH = File.expand_path("~/Library/Keychains/#{CI_KEYCHAIN_NAME}-db")
+
   # -----------------------------
   # Private lanes
   # -----------------------------
@@ -31,13 +35,50 @@ platform :ios do
     )
   end
 
+  # CI에서 codesign 팝업/권한 문제 방지용 keychain 준비
+  private_lane :setup_ci_keychain do
+    # 로컬 실행이면 굳이 ci.keychain 만들 필요 없게
+    next unless ENV["CI"]
+
+    keychain_password = ENV.fetch("KEYCHAIN_PASSWORD")
+
+    # 이미 있으면 삭제 후 재생성
+    delete_keychain(name: CI_KEYCHAIN_NAME) if File.exist?(CI_KEYCHAIN_PATH)
+
+    create_keychain(
+      name: CI_KEYCHAIN_NAME,
+      password: keychain_password,
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: true
+    )
+
+    set_keychain_settings(
+      keychain: CI_KEYCHAIN_NAME,
+      timeout: 3600,
+      lock_when_sleeps: true
+    )
+  end
+
   private_lane :sync_signing do
     # CI에서 appstore 프로파일/인증서 설치
-    match(
-      type: "appstore",
-      readonly: true,
-      app_identifier: [BUNDLE_ID]
-    )
+    # CI일 때는 ci.keychain에 설치 + partition list 세팅이 제대로 되도록 password 제공
+    if ENV["CI"]
+      match(
+        type: "appstore",
+        readonly: true,
+        app_identifier: [BUNDLE_ID],
+        keychain_name: CI_KEYCHAIN_NAME,
+        keychain_password: ENV.fetch("KEYCHAIN_PASSWORD")
+      )
+    else
+      match(
+        type: "appstore",
+        readonly: true,
+        app_identifier: [BUNDLE_ID]
+      )
+    end
   end
 
   # -----------------------------
@@ -45,19 +86,7 @@ platform :ios do
   # -----------------------------
   desc "CI용 빌드/아카이브"
   lane :build_ci do
-    build_app(
-      scheme: APP_SCHEME,
-      clean: true,
-      output_directory: BUILD_DIR,
-      output_name: IPA_NAME,
-      export_method: "app-store"
-    )
-  end
-
-  desc "TestFlight Upload"
-  lane :beta do
-    asc_api_key
-    set_timestamp_build_number
+    setup_ci_keychain
     sync_signing
 
     build_app(
@@ -65,7 +94,27 @@ platform :ios do
       clean: true,
       output_directory: BUILD_DIR,
       output_name: IPA_NAME,
-      export_method: "app-store"
+      export_method: "app-store",
+      # CI에서 어떤 keychain을 참조할지 명확히
+      keychain_path: (ENV["CI"] ? CI_KEYCHAIN_PATH : nil)
+    )
+  end
+
+  desc "TestFlight Upload"
+  lane :beta do
+    asc_api_key
+    set_timestamp_build_number
+
+    setup_ci_keychain
+    sync_signing
+
+    build_app(
+      scheme: APP_SCHEME,
+      clean: true,
+      output_directory: BUILD_DIR,
+      output_name: IPA_NAME,
+      export_method: "app-store",
+      keychain_path: (ENV["CI"] ? CI_KEYCHAIN_PATH : nil)
     )
 
     upload_to_testflight(
