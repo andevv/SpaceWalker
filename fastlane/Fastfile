@@ -3,21 +3,14 @@
 default_platform(:ios)
 
 platform :ios do
-  # -----------------------------
-  # Config
-  # -----------------------------
   APP_SCHEME  = "SpaceWalker"
   XCODEPROJ   = "SpaceWalker.xcodeproj"
   BUILD_DIR   = "build"
   IPA_NAME    = "SpaceWalker.ipa"
   BUNDLE_ID   = "com.andev.SpaceWalker"
 
-  # CI keychain
   CI_KEYCHAIN_NAME = "ci"
 
-  # -----------------------------
-  # Private lanes
-  # -----------------------------
   private_lane :asc_api_key do
     app_store_connect_api_key(
       key_id: ENV.fetch("ASC_KEY_ID"),
@@ -34,7 +27,6 @@ platform :ios do
     )
   end
 
-  # CI에서만 키체인 세팅
   private_lane :setup_ci_keychain do
     create_keychain(
       name: CI_KEYCHAIN_NAME,
@@ -45,9 +37,9 @@ platform :ios do
       lock_when_sleeps: false
     )
 
-    # create_keychain 이후, fastlane이 잡아준 실제 경로 사용
-    keychain_path = Actions.lane_context[Actions::SharedValues::KEYCHAIN_PATH]
+    keychain_path = Actions.lane_context[Actions::SharedValues::KEYCHAIN_PATH].to_s
 
+    sh("security list-keychains -d user -s '#{keychain_path}' ~/Library/Keychains/login.keychain-db")
     sh("security set-keychain-settings -lut 3600 '#{keychain_path}'")
     sh("security unlock-keychain -p '#{ENV.fetch("KEYCHAIN_PASSWORD")}' '#{keychain_path}'")
   end
@@ -67,21 +59,6 @@ platform :ios do
     match(**options)
   end
 
-  # -----------------------------
-  # Public lanes
-  # -----------------------------
-  desc "CI용 빌드/아카이브"
-  lane :build_ci do
-    build_app(
-      scheme: APP_SCHEME,
-      clean: true,
-      output_directory: BUILD_DIR,
-      output_name: IPA_NAME,
-      export_method: "app-store"
-    )
-  end
-
-  desc "TestFlight Upload"
   lane :beta do
     asc_api_key
     set_timestamp_build_number
