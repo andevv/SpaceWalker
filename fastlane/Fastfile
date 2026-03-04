@@ -14,7 +14,6 @@ platform :ios do
 
   # CI keychain
   CI_KEYCHAIN_NAME = "ci"
-  CI_KEYCHAIN_PATH = File.expand_path("~/Library/Keychains/#{CI_KEYCHAIN_NAME}.keychain-db")
 
   # -----------------------------
   # Private lanes
@@ -46,20 +45,26 @@ platform :ios do
       lock_when_sleeps: false
     )
 
-    # keychain search list에 추가
-    sh("security set-keychain-settings -lut 3600 #{CI_KEYCHAIN_PATH}")
-    sh("security list-keychains -d user -s #{CI_KEYCHAIN_PATH} ~/Library/Keychains/login.keychain-db")
-    sh("security unlock-keychain -p #{ENV.fetch("KEYCHAIN_PASSWORD")} #{CI_KEYCHAIN_PATH}")
+    # create_keychain 이후, fastlane이 잡아준 실제 경로 사용
+    keychain_path = Actions.lane_context[Actions::SharedValues::KEYCHAIN_PATH]
+
+    sh("security set-keychain-settings -lut 3600 '#{keychain_path}'")
+    sh("security unlock-keychain -p '#{ENV.fetch("KEYCHAIN_PASSWORD")}' '#{keychain_path}'")
   end
 
   private_lane :sync_signing do
-    match(
+    options = {
       type: "appstore",
       readonly: true,
-      app_identifier: [BUNDLE_ID],
-      keychain_name: CI_KEYCHAIN_NAME,
-      keychain_password: ENV.fetch("KEYCHAIN_PASSWORD")
-    )
+      app_identifier: [BUNDLE_ID]
+    }
+
+    if ENV["CI"]
+      options[:keychain_name] = CI_KEYCHAIN_NAME
+      options[:keychain_password] = ENV.fetch("KEYCHAIN_PASSWORD")
+    end
+
+    match(**options)
   end
 
   # -----------------------------
@@ -81,7 +86,6 @@ platform :ios do
     asc_api_key
     set_timestamp_build_number
 
-    # GitHub Actions에서만 실행되도록
     setup_ci_keychain if ENV["CI"]
     sync_signing
 
