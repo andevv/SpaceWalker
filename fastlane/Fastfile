@@ -10,6 +10,7 @@ platform :ios do
   XCODEPROJ   = "SpaceWalker.xcodeproj"
   BUILD_DIR   = "build"
   IPA_NAME    = "SpaceWalker.ipa"
+  BUNDLE_ID   = "com.andev.SpaceWalker"
 
   # -----------------------------
   # Private lanes
@@ -30,6 +31,15 @@ platform :ios do
     )
   end
 
+  private_lane :sync_signing do
+    # CI에서 appstore 프로파일/인증서 설치
+    match(
+      type: "appstore",
+      readonly: true,
+      app_identifier: [BUNDLE_ID]
+    )
+  end
+
   # -----------------------------
   # Public lanes
   # -----------------------------
@@ -40,6 +50,7 @@ platform :ios do
       clean: true,
       output_directory: BUILD_DIR,
       output_name: IPA_NAME
+      export_method: "app-store"
     )
   end
 
@@ -47,12 +58,14 @@ platform :ios do
   lane :beta do
     asc_api_key
     set_timestamp_build_number
+    sync_signing
 
     build_app(
       scheme: APP_SCHEME,
       clean: true,
       output_directory: BUILD_DIR,
       output_name: IPA_NAME
+      export_method: "app-store"
     )
 
     upload_to_testflight(

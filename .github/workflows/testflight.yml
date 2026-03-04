@@ -62,12 +62,6 @@ jobs:
         run: xcodebuild -resolvePackageDependencies -scheme SpaceWalker -project SpaceWalker.xcodeproj
 
       # -----------------------------
-      # Signing certificates install
-      # -----------------------------
-      - name: Install certificates (match)
-        run: bundle exec fastlane match appstore --readonly
-
-      # -----------------------------
       # TestFlight deploy
       # -----------------------------
       - name: Upload to TestFlight
