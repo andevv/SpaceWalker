@@ -27,6 +27,7 @@ jobs:
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
 
       BASE_URL: ${{ secrets.BASE_URL }}
+      GOOGLE_SERVICE_INFO_PLIST_BASE64: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST_BASE64 }}
 
     steps:
       - name: Checkout
@@ -56,6 +57,18 @@ jobs:
               static let baseURL = "${BASE_URL}"
           }
           EOF
+
+      # -----------------------------
+      # GoogleService-Info.plist 생성 (Firebase/Crashlytics)
+      # -----------------------------
+      - name: Generate GoogleService-Info.plist
+        run: |
+          mkdir -p SpaceWalker/
+          if [ -z "${GOOGLE_SERVICE_INFO_PLIST_BASE64}" ]; then
+            echo "::error::Missing secret GOOGLE_SERVICE_INFO_PLIST_BASE64"
+            exit 1
+          fi
+          ruby -rbase64 -e 'File.binwrite("SpaceWalker/GoogleService-Info.plist", Base64.decode64(ENV.fetch("GOOGLE_SERVICE_INFO_PLIST_BASE64")) )'
 
       # -----------------------------
       # Swift Package resolve
