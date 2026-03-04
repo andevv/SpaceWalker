@@ -1,0 +1,55 @@
+name: TestFlight Auto Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: macos-latest
+
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+      BASE_URL: ${{ secrets.BASE_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Generate Secrets.swift
+        run: |
+          mkdir -p SpaceWalker/Resources
+          cat > SpaceWalker/Resources/Secrets.swift << EOF
+          //
+          // Auto-generated in CI
+          //
+          import Foundation
+          enum Secrets {
+              static let baseURL = "${BASE_URL}"
+          }
+          EOF
+
+      - name: Resolve SPM
+        run: xcodebuild -resolvePackageDependencies -scheme SpaceWalker -project SpaceWalker.xcodeproj
+
+      - name: Upload to TestFlight
+        run: bundle exec fastlane ios beta
