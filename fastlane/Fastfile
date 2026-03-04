@@ -49,7 +49,7 @@ platform :ios do
       scheme: APP_SCHEME,
       clean: true,
       output_directory: BUILD_DIR,
-      output_name: IPA_NAME
+      output_name: IPA_NAME,
       export_method: "app-store"
     )
   end
