@@ -198,6 +198,7 @@
 /* Begin PBXShellScriptBuildPhase section */
 		FED4A4C12E9A917400BD493B /* Firebase Crashlytics */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);

@@ -19,6 +19,12 @@ final class SignUpViewController: UIViewController {
     private let termsURLString = "https://an-dev.notion.site/SpaceWalker-289b268a2bd5807591d3feff91059098"
     private let privacyURLString = "https://an-dev.notion.site/SpaceWalker-27eb268a2bd58000865cfb9620685592"
 
+    // MARK: - ViewModel
+    private let viewModel = SignUpViewModel()
+    private let disposeBag = DisposeBag()
+    private let appleLoginSuccessRelay = PublishRelay<SignUpAppleLoginPayload>()
+    private let appleLoginFailureRelay = PublishRelay<String>()
+
     // MARK: - UI Components
     private let logoImageView: UIImageView = {
         let iv = UIImageView(image: UIImage(named: "Logo_Wordmark3"))
@@ -35,8 +41,7 @@ final class SignUpViewController: UIViewController {
         return btn
     }()
 
-    // 로그인 버튼 아래 링크 영역
-    private let linksStack = UIStackView() // “서비스 이용약관” / “개인정보 처리방침”
+    private let linksStack = UIStackView()
     private let termsButton = UIButton(type: .system)
     private let privacyButton = UIButton(type: .system)
     private let dotLabel: UILabel = {
@@ -64,16 +69,43 @@ final class SignUpViewController: UIViewController {
 
     // MARK: - Apple Sign In Properties
     private var currentNonce: String?
-    
-    private let disposeBag = DisposeBag()
 
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(white: 1.0/255.0, alpha: 1.0) // HEX #010101
+        view.backgroundColor = UIColor(white: 1.0/255.0, alpha: 1.0)
         setupLayout()
         setupLinks()
+        bindViewModel()
         appleButton.addTarget(self, action: #selector(startAppleLogin), for: .touchUpInside)
+    }
+
+    private func bindViewModel() {
+        let input = SignUpViewModel.Input(
+            appleLoginSuccess: appleLoginSuccessRelay.asObservable(),
+            appleLoginFailure: appleLoginFailureRelay.asObservable()
+        )
+
+        let output = viewModel.transform(input: input)
+
+        output.route
+            .emit(onNext: { [weak self] route in
+                self?.routeToNext(route)
+            })
+            .disposed(by: disposeBag)
+
+        output.alertMessage
+            .emit(onNext: { [weak self] message in
+                self?.showLoginFailAlert(message: message)
+            })
+            .disposed(by: disposeBag)
+
+        output.isLoading
+            .drive(onNext: { [weak self] isLoading in
+                self?.appleButton.isEnabled = !isLoading
+                self?.appleButton.alpha = isLoading ? 0.7 : 1.0
+            })
+            .disposed(by: disposeBag)
     }
 
     // MARK: - Layout
@@ -96,13 +128,11 @@ final class SignUpViewController: UIViewController {
             make.height.equalTo(52)
         }
 
-        // 먼저 bottomTextView를 바닥에 고정
         bottomTextView.snp.makeConstraints { make in
             make.leading.trailing.equalToSuperview().inset(16)
             make.bottom.equalTo(view.safeAreaLayoutGuide).inset(20)
         }
 
-        // linksStack을 bottomTextView 위 16pt에 배치
         linksStack.snp.makeConstraints { make in
             make.bottom.equalTo(bottomTextView.snp.top).offset(-16)
             make.centerX.equalToSuperview()
@@ -112,7 +142,7 @@ final class SignUpViewController: UIViewController {
     private func setupLinks() {
         linksStack.axis = .horizontal
         linksStack.spacing = 8
-        linksStack.alignment = .firstBaseline // 기준선 정렬로 가운데 점 위치 안정화
+        linksStack.alignment = .firstBaseline
         linksStack.distribution = .equalCentering
 
         func styleLinkButton(_ b: UIButton, title: String) {
@@ -140,7 +170,6 @@ final class SignUpViewController: UIViewController {
         termsButton.addTarget(self, action: #selector(openTerms), for: .touchUpInside)
         privacyButton.addTarget(self, action: #selector(openPrivacy), for: .touchUpInside)
 
-        // 가운데 점의 너비가 과도하게 늘어나지 않도록 우선순위 조정
         dotLabel.setContentHuggingPriority(.required, for: .horizontal)
         dotLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
@@ -153,7 +182,7 @@ final class SignUpViewController: UIViewController {
     @objc private func startAppleLogin() {
         let provider = ASAuthorizationAppleIDProvider()
         let request = provider.createRequest()
-        request.requestedScopes = [] // 사용자 정보 불필요
+        request.requestedScopes = []
         let nonce = randomNonceString()
         currentNonce = nonce
         request.nonce = sha256(nonce)
@@ -167,30 +196,12 @@ final class SignUpViewController: UIViewController {
     // MARK: - Terms / Privacy
     @objc private func openTerms() {
         guard let url = URL(string: termsURLString) else { return }
-        // In-app Safari
-        let safari = SFSafariViewController(url: url)
-        present(safari, animated: true)
-        // If you prefer opening external Safari app instead of in-app Safari, use the line below:
-        // UIApplication.shared.open(url)
+        present(SFSafariViewController(url: url), animated: true)
     }
 
     @objc private func openPrivacy() {
         guard let url = URL(string: privacyURLString) else { return }
-        // In-app Safari
-        let safari = SFSafariViewController(url: url)
-        present(safari, animated: true)
-        // If you prefer opening external Safari app instead of in-app Safari, use the line below:
-        // UIApplication.shared.open(url)
-    }
-
-    private func presentSheet(_ vc: UIViewController) {
-        vc.modalPresentationStyle = .pageSheet
-        if let sheet = vc.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = 16
-        }
-        present(vc, animated: true)
+        present(SFSafariViewController(url: url), animated: true)
     }
 
     // MARK: - Nonce Helpers
@@ -218,6 +229,40 @@ final class SignUpViewController: UIViewController {
         let hashedData = SHA256.hash(data: inputData)
         return hashedData.compactMap { String(format: "%02x", $0) }.joined()
     }
+
+    private func routeToNext(_ route: SignUpRoute) {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let delegate = scene.delegate as? SceneDelegate,
+              let window = delegate.window else { return }
+
+        let nextVC: UIViewController
+        switch route {
+        case .spaceSelect:
+            nextVC = SpaceSelectViewController()
+        case .mainTab:
+            nextVC = MainTabBarController()
+        }
+
+        UIView.transition(
+            with: window,
+            duration: 0.4,
+            options: .transitionCrossDissolve,
+            animations: {
+                window.rootViewController = nextVC
+            },
+            completion: nil
+        )
+    }
+
+    private func showLoginFailAlert(message: String) {
+        let alert = UIAlertController(
+            title: "로그인 실패",
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "확인", style: .cancel))
+        present(alert, animated: true)
+    }
 }
 
 // MARK: - ASAuthorizationControllerDelegate
@@ -229,19 +274,14 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         guard let tokenData = credential.identityToken,
               let idToken = String(data: tokenData, encoding: .utf8) else {
             LogAuth("ID Token 없음")
+            appleLoginFailureRelay.accept("ID Token을 가져오지 못했습니다.")
             return
         }
-        
+
         guard let authCodeData = credential.authorizationCode,
               let authCode = String(data: authCodeData, encoding: .utf8) else {
             LogAuth("Authorization Code 없음")
-            let alert = UIAlertController(
-                title: "로그인 실패",
-                message: "Authorization Code를 가져오지 못했습니다.",
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "확인", style: .cancel))
-            self.present(alert, animated: true)
+            appleLoginFailureRelay.accept("Authorization Code를 가져오지 못했습니다.")
             return
         }
 
@@ -252,74 +292,15 @@ extension SignUpViewController: ASAuthorizationControllerDelegate {
         LogAuth("idToken (JWT): \(idToken)")
         LogAuth("authCode (raw): \(authCode)")
 
-        let loginRepo = AppleLoginRepository()
-        let spaceRepo = SpaceRepository()
-
-        // 순차 비동기 체인
-        loginRepo.loginWithApple(idToken: idToken, authCode: authCode)
-            .do(onSuccess: { response in
-                // 토큰 저장
-                UserSessionStore.shared.accessToken = response.accessToken
-                UserSessionStore.shared.refreshToken = response.refreshToken
-                LogAuth("서버 로그인 성공 — AccessToken 저장 완료")
-            })
-            .flatMap { _ in
-                // 로그인 완료 후 → 스페이스 목록 요청
-                LogNetwork("[API] 내 스페이스 목록 요청 시작")
-                return spaceRepo.fetchMySpaces()
-            }
-            .observe(on: MainScheduler.instance)
-            .subscribe(
-                onSuccess: { joinedSpaces in
-                    LogNetwork("[API] 내 스페이스 목록 응답 수신 — count: \(joinedSpaces.count)")
-
-                    guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                          let delegate = scene.delegate as? SceneDelegate,
-                          let window = delegate.window else { return }
-
-                    let nextVC: UIViewController
-                    if joinedSpaces.isEmpty {
-                        LogAuth("사용자가 속한 Space 없음 → SpaceSelectViewController로 이동")
-                        nextVC = SpaceSelectViewController()
-                    } else {
-                        LogAuth("사용자가 속한 Space 있음 → CalendarViewController로 이동")
-                        nextVC = MainTabBarController()
-                    }
-
-                    UIView.transition(
-                        with: window,
-                        duration: 0.4,
-                        options: .transitionCrossDissolve,
-                        animations: {
-                            window.rootViewController = nextVC
-                        },
-                        completion: nil
-                    )
-                },
-                onFailure: { error in
-                    LogNetwork("로그인 or 스페이스 조회 실패: \(error.localizedDescription)")
-                    let alert = UIAlertController(
-                        title: "로그인 실패",
-                        message: error.localizedDescription,
-                        preferredStyle: .alert
-                    )
-                    alert.addAction(UIAlertAction(title: "확인", style: .cancel))
-                    self.present(alert, animated: true)
-                }
-            )
-            .disposed(by: disposeBag)
+        appleLoginSuccessRelay.accept(
+            SignUpAppleLoginPayload(userIdentifier: userIdentifier, idToken: idToken, authCode: authCode)
+        )
     }
 
     func authorizationController(controller: ASAuthorizationController,
                                  didCompleteWithError error: Error) {
         LogAuth("Apple 로그인 실패: \(error.localizedDescription)")
-        let alert = UIAlertController(
-            title: "로그인 실패",
-            message: error.localizedDescription,
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "확인", style: .cancel))
-        present(alert, animated: true)
+        appleLoginFailureRelay.accept(error.localizedDescription)
     }
 }
 
