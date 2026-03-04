@@ -1,4 +1,5 @@
 # fastlane/Fastfile
+require "shellwords"
 
 default_platform(:ios)
 
@@ -37,11 +38,23 @@ platform :ios do
       lock_when_sleeps: false
     )
 
-    keychain_path = Actions.lane_context[Actions::SharedValues::KEYCHAIN_PATH].to_s
+    raw_keychain_path = Actions.lane_context[Actions::SharedValues::KEYCHAIN_PATH].to_s
+    expanded_keychain_path = File.expand_path(raw_keychain_path)
+    keychain_path = if File.exist?(expanded_keychain_path)
+                      expanded_keychain_path
+                    elsif File.exist?("#{expanded_keychain_path}-db")
+                      "#{expanded_keychain_path}-db"
+                    else
+                      expanded_keychain_path
+                    end
 
-    sh("security list-keychains -d user -s '#{keychain_path}' ~/Library/Keychains/login.keychain-db")
-    sh("security set-keychain-settings -lut 3600 '#{keychain_path}'")
-    sh("security unlock-keychain -p '#{ENV.fetch("KEYCHAIN_PASSWORD")}' '#{keychain_path}'")
+    escaped_keychain_path = Shellwords.escape(keychain_path)
+    escaped_login_path = Shellwords.escape(File.expand_path("~/Library/Keychains/login.keychain-db"))
+    escaped_password = Shellwords.escape(ENV.fetch("KEYCHAIN_PASSWORD"))
+
+    sh("security list-keychains -d user -s #{escaped_keychain_path} #{escaped_login_path}")
+    sh("security set-keychain-settings -lut 3600 #{escaped_keychain_path}")
+    sh("security unlock-keychain -p #{escaped_password} #{escaped_keychain_path}")
   end
 
   private_lane :sync_signing do
