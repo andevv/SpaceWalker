@@ -17,6 +17,7 @@ jobs:
     runs-on: macos-latest
 
     env:
+      TZ: Asia/Seoul
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}

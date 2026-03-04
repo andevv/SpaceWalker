@@ -15,21 +15,13 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 
 ## iOS
 
-### ios build_ci
-
-```sh
-[bundle exec] fastlane ios build_ci
-```
-
-CI용 빌드/아카이브
-
 ### ios beta
 
 ```sh
 [bundle exec] fastlane ios beta
 ```
 
-TestFlight Upload
+
 
 ----
 
