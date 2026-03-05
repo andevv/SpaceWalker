@@ -3,7 +3,7 @@
 스페이스 멤버들과 일일 미션 사진을 공유하는 SNS형 iOS 앱입니다. Apple 로그인으로 시작해 Space를 선택하고, 캘린더·피드·지도·마이페이지 탭을 중심으로 미션 사진을 업로드/조회할 수 있습니다. 실서비스용 API 연동과 토큰 리프레시, 이미지 메타데이터 저장, 프리사인드 업로드 흐름을 구현했습니다.
 
 - **주요 역할**: iOS 클라이언트 개발 (UIKit + Rx), 백엔드 연동, UX 설계  
-- **타깃**: iOS 16+, Xcode 15+
+- **타깃**: iOS 16+, Xcode 26+ (CI 배포 기준)
 
 | Login | Calendar | Feed | Feed Detail |
 |------|------|------|------|
@@ -16,6 +16,40 @@
 | My Page - Edit Nickname | My Page - Privacy Policy | My Page - Terms | My Page - OSS License|
 |------|------|------|------|
 | <img width="200" src="https://github.com/user-attachments/assets/c0962d2a-8c52-41e1-9c03-683a73a8bea5" /> | <img width="200" src="https://github.com/user-attachments/assets/7971b45c-60cc-4d7d-90f6-0dfec3696325" /> | <img width="200" src="https://github.com/user-attachments/assets/42e50946-449a-4ce5-8f87-eeedb032a1f4" /> | <img width="200" src="https://github.com/user-attachments/assets/71dd09d8-9506-43e5-9e4e-d5e6c74e0674" /> |
+
+## 프로젝트 구성 요약
+- **레이어 구조**: `App`(엔트리/세션 라우팅) → `Features`(화면/상호작용) → `Core`(네트워크/레포지토리/유틸/모델) → `Resources`(정적 리소스/환경 파일)
+- **아키텍처 패턴**: UIKit + MVVM(Rx) + Repository
+- **인증/세션 흐름**: Apple 로그인 → 토큰 저장 → `SceneDelegate` 루트 분기(`SignUp`/`SpaceSelect`/`MainTabBar`)
+- **네트워크 전략**: `NetworkManager` 중심 단일 요청 계층, 401 응답 시 토큰 리프레시 후 재시도
+- **미디어 업로드 전략**: 프리사인드 URL 기반 업로드 + Realm 메타데이터 캐시로 복구 여지 확보
+
+## CI/CD (TestFlight Auto Deploy)
+- **트리거**: `main` 브랜치 push 시 GitHub Actions 실행
+- **배포 목표**: Fastlane으로 iOS 아카이브/서명/TestFlight 업로드 자동화
+- **러너 환경**: `macos-latest`, `Ruby 3.2`, `Xcode 26.0`(실행 시점 `26.0.1`), `TZ=Asia/Seoul`
+- **Fastlane lane**: `ios beta`
+  - `app_store_connect_api_key` 인증
+  - KST 기준 타임스탬프 빌드번호 증가
+  - CI 전용 keychain 생성/언락/설정
+  - `match` 서명 동기화(읽기 전용)
+  - `build_app` 아카이브
+  - `upload_to_testflight` 업로드
+- **시크릿/보안 처리**:
+  - GitHub Secrets 사용: `ASC_*`, `MATCH_*`, `KEYCHAIN_PASSWORD`, `BASE_URL`, `GOOGLE_SERVICE_INFO_PLIST_BASE64`
+  - CI 런타임 파일 생성: `Secrets.swift`, `GoogleService-Info.plist` (둘 다 git ignore 대상)
+
+## CI/CD 파이프라인 다이어그램
+```mermaid
+flowchart LR
+    A["Code Push (main)"] --> B["GitHub Actions Trigger"]
+    B --> C["Build Environment Setup"]
+    C --> D["Load GitHub Secrets"]
+    D --> E["Generate Ignored Runtime Files"]
+    E --> F["Build & Signing (Fastlane)"]
+    F --> G["Upload to TestFlight"]
+    G --> H["Release Verification"]
+```
 
 ## 핵심 기능
 - **Apple 로그인**: `AuthenticationServices`를 이용해 애플 계정으로 로그인. 토큰 저장 후 자동 세션 유지.
@@ -65,7 +99,7 @@
 
 ## 환경 설정
 - API 엔드포인트는 `Resources/Secrets.swift`의 `baseURL`에서 관리. 환경에 맞게 수정. (`Secrets.baseURL = "https://..."`)
-- Firebase: `GoogleService-Info.plist`가 포함되어 있으며, 다른 프로젝트를 사용할 경우 교체 필요.
+- Firebase: `GoogleService-Info.plist`를 사용. CI에서는 `GOOGLE_SERVICE_INFO_PLIST_BASE64` 시크릿으로 런타임 생성.
 - 백엔드 준비 전에는 `NetworkManager.requestDummy`/`requestRawDataDummy`를 활용해 더미 응답을 사용할 수 있도록 구현됨.
 
 ## 포인트
