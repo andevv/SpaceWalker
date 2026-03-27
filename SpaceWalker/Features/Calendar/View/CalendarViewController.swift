@@ -145,6 +145,7 @@ final class CalendarViewController: UIViewController {
         view.backgroundColor = .systemBackground
         setupLayout()
         setupCalendar()
+        setupAccessibility()
         refreshHeaderTitle()
 
         // 칩을 서버(더미)에서 받아와 구성
@@ -288,6 +289,38 @@ final class CalendarViewController: UIViewController {
             label.font = .systemFont(ofSize: 13, weight: .semibold)
         }
     }
+
+    private func setupAccessibility() {
+        titleLabel.isAccessibilityElement = true
+        titleLabel.accessibilityTraits = .header
+        titleLabel.accessibilityLabel = "오늘의 미션"
+
+        missionLabel.isAccessibilityElement = true
+        missionLabel.accessibilityLabel = missionLabel.text
+
+        monthTitleLabel.isAccessibilityElement = true
+        monthTitleLabel.accessibilityTraits = .header
+        monthTitleLabel.accessibilityLabel = monthTitleLabel.text
+
+        prevButton.isAccessibilityElement = true
+        prevButton.accessibilityTraits = .button
+        prevButton.accessibilityLabel = "이전 달"
+        prevButton.accessibilityHint = "한 달 전으로 이동합니다."
+
+        nextButton.isAccessibilityElement = true
+        nextButton.accessibilityTraits = .button
+        nextButton.accessibilityLabel = "다음 달"
+        nextButton.accessibilityHint = "한 달 뒤로 이동합니다."
+
+        calendar.isAccessibilityElement = false
+        calendar.shouldGroupAccessibilityChildren = true
+        calendar.accessibilityLabel = "미션 캘린더"
+        calendar.accessibilityHint = "날짜를 탐색하고 선택할 수 있습니다."
+
+        missionButton.isAccessibilityElement = true
+        missionButton.accessibilityTraits = .button
+        updateMissionButtonAccessibility()
+    }
     
     // 사용자의 특정 space 상태 상세 조회
     private func fetchSpaceActivities(spaceId: Int) {
@@ -318,6 +351,7 @@ final class CalendarViewController: UIViewController {
 
                 // 오늘의 미션
                 self.missionLabel.text = result.missionTitle
+                self.missionLabel.accessibilityLabel = "오늘의 미션, \(result.missionTitle)"
                 self.currentDailyMissionId = result.missionId
 
                 // Update mission button based on API-provided didMission (true = already completed today)
@@ -331,6 +365,7 @@ final class CalendarViewController: UIViewController {
                     btnConfig?.title = "미션하러 가기"
                 }
                 self.missionButton.configuration = btnConfig
+                self.updateMissionButtonAccessibility()
 
                 self.hideCalendarLoading(expectedKey: fetchKey)
                 self.photos = result.photos
@@ -413,6 +448,8 @@ final class CalendarViewController: UIViewController {
 
             chipStack.addArrangedSubview(b)
         }
+
+        updateChipAccessibility()
     }
 
     // MARK: - Actions
@@ -434,7 +471,10 @@ final class CalendarViewController: UIViewController {
             let selected = joinedSpaces[selectedChipIndex]
             LogUI("[UI] chipTapped — index=\(self.selectedChipIndex), spaceId=\(selected.id), name=\(selected.name)")
             fetchSpaceActivities(spaceId: selected.id)
+            announceForVoiceOver("\(selected.name) 스페이스 선택됨")
         }
+
+        updateChipAccessibility()
     }
 
     @objc private func prevMonth() {
@@ -710,7 +750,44 @@ final class CalendarViewController: UIViewController {
     private func refreshHeaderTitle() {
         let y = cal.component(.year, from: calendar.currentPage)
         let m = cal.component(.month, from: calendar.currentPage)
-        monthTitleLabel.text = String(format: "%d년 %d월", y, m)
+        let title = String(format: "%d년 %d월", y, m)
+        monthTitleLabel.text = title
+        monthTitleLabel.accessibilityLabel = title
+    }
+
+    private func updateChipAccessibility() {
+        for case let button as UIButton in chipStack.arrangedSubviews {
+            let isSelected = button.tag == selectedChipIndex
+            button.isAccessibilityElement = true
+            button.accessibilityTraits = isSelected ? [.button, .selected] : [.button]
+            if let title = button.currentTitle {
+                button.accessibilityLabel = "\(title) 스페이스"
+            }
+            button.accessibilityHint = "두 번 탭하면 스페이스를 선택합니다."
+        }
+    }
+
+    private func updateMissionButtonAccessibility() {
+        let title = missionButton.configuration?.title ?? "미션하러 가기"
+        missionButton.accessibilityLabel = title
+        missionButton.accessibilityHint = missionButton.isEnabled ? "두 번 탭하면 미션 인증 사진 촬영을 시작합니다." : "오늘은 이미 미션을 완료했습니다."
+        missionButton.accessibilityTraits = missionButton.isEnabled ? [.button] : [.button, .notEnabled]
+    }
+
+    private func announceForVoiceOver(_ text: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: text)
+    }
+
+    private func announceCurrentMonth() {
+        announceForVoiceOver(monthTitleLabel.text ?? "달 변경")
+    }
+
+    private func accessibilityDateText(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "M월 d일 EEEE"
+        return formatter.string(from: date)
     }
 
 }
@@ -744,6 +821,7 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
 
         // 1) 해당 날짜에 사진이 있으면 → 상세 모달 표시 (실제 postId 사용)
         if let dayPhoto = photos.first(where: { cal.isDate($0.key, inSameDayAs: date) })?.value {
+            announceForVoiceOver("\(accessibilityDateText(for: date)), 사진 상세 열기")
             let postId = dayPhoto.postId
             let spaceIdForDetail = (self.joinedSpaces.indices.contains(self.selectedChipIndex)) ? self.joinedSpaces[self.selectedChipIndex].id : 0
             let identifier = SpacePostIdentifier(spaceId: spaceIdForDetail, postId: postId)
@@ -784,6 +862,7 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
 
         // 2) 사진이 없으면 기존 동작 유지
         calendar.reloadData()
+        announceForVoiceOver("\(accessibilityDateText(for: date)) 선택됨")
     }
 
     func calendar(_ calendar: FSCalendar, boundingRectWillChange bounds: CGRect, animated: Bool) {
@@ -797,6 +876,7 @@ extension CalendarViewController: FSCalendarDataSource, FSCalendarDelegate, FSCa
 
     func calendarCurrentPageDidChange(_ calendar: FSCalendar) {
         refreshHeaderTitle()
+        announceCurrentMonth()
         if joinedSpaces.indices.contains(selectedChipIndex) {
             let selected = joinedSpaces[selectedChipIndex]
             fetchSpaceActivities(spaceId: selected.id)
@@ -1352,6 +1432,7 @@ extension CalendarViewController {
             let ac = UIAlertController(title: title, message: message, preferredStyle: .alert)
             ac.addAction(UIAlertAction(title: "확인", style: .default))
             self.present(ac, animated: true)
+            self.announceForVoiceOver("\(title), \(message)")
         }
     }
 }
