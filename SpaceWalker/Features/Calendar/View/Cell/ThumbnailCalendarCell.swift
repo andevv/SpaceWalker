@@ -83,6 +83,9 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         dayBadge.layer.borderColor = UIColor.systemGray4.cgColor
         selectedRing.isHidden = true
         setDimmed(false)
+        accessibilityLabel = nil
+        accessibilityHint = nil
+        accessibilityTraits = .button
     }
 
     func configure(day: Int, image: UIImage?, selected: Bool, dimmed: Bool, date: Date? = nil) {
@@ -119,6 +122,8 @@ final class ThumbnailCalendarCell: FSCalendarCell {
             dayBadge.textColor = .label
             dayBadge.layer.borderColor = UIColor.systemGray4.cgColor
         }
+
+        configureAccessibility(day: day, date: date, hasPhoto: image != nil, selected: selected, isToday: isToday, dimmed: dimmed)
     }
 
     private func setDimmed(_ dimmed: Bool) {
@@ -126,5 +131,26 @@ final class ThumbnailCalendarCell: FSCalendarCell {
         dayBadge.alpha = alpha
         thumbView.alpha = alpha
     }
-}
 
+    private func configureAccessibility(day: Int, date: Date?, hasPhoto: Bool, selected: Bool, isToday: Bool, dimmed: Bool) {
+        isAccessibilityElement = true
+        accessibilityTraits = selected ? [.button, .selected] : [.button]
+
+        let dateText: String = {
+            guard let date else { return "\(day)일" }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "ko_KR")
+            formatter.dateFormat = "M월 d일 EEEE"
+            return formatter.string(from: date)
+        }()
+
+        var parts: [String] = [dateText]
+        if isToday { parts.append("오늘") }
+        if hasPhoto { parts.append("사진 있음") }
+        if selected { parts.append("선택됨") }
+        if dimmed { parts.append("현재 달 아님") }
+        accessibilityLabel = parts.joined(separator: ", ")
+
+        accessibilityHint = hasPhoto ? "두 번 탭하면 사진 상세를 엽니다." : "두 번 탭하면 날짜를 선택합니다."
+    }
+}

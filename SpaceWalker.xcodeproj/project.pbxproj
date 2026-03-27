@@ -262,7 +262,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.10;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = com.andev.SpaceWalker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -311,7 +311,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.10;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = "-ObjC";
 				PRODUCT_BUNDLE_IDENTIFIER = com.andev.SpaceWalker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -497,7 +497,7 @@
 			repositoryURL = "https://github.com/realm/realm-swift";
 			requirement = {
 				kind = exactVersion;
-				version = 20.0.3;
+				version = 20.0.4;
 			};
 		};
 		FED4A4902E9A8F6700BD493B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
