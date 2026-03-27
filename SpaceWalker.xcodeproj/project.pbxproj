@@ -497,7 +497,7 @@
 			repositoryURL = "https://github.com/realm/realm-swift";
 			requirement = {
 				kind = exactVersion;
-				version = 20.0.3;
+				version = 20.0.4;
 			};
 		};
 		FED4A4902E9A8F6700BD493B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
