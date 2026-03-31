@@ -8,12 +8,12 @@
 import UIKit
 import RxSwift
 import RxCocoa
-import Alamofire
 import PhotosUI
 import UniformTypeIdentifiers
 import ImageIO
 import Kingfisher
 import RealmSwift
+import Alamofire
 
 private enum MyPageViewModelError: LocalizedError {
     case message(String)
@@ -49,6 +49,7 @@ enum MyPageWithdrawalEvent {
 }
 
 final class MyPageViewModel: BaseViewModel {
+    private let repository = MyPageRepository()
 
     struct Input {
         let viewDidLoad: Observable<Void>
@@ -153,14 +154,12 @@ final class MyPageViewModel: BaseViewModel {
     }
 
     private func fetchUserSingle() -> Single<APIUser> {
-        NetworkManager.shared
-            .request("/api/v1/user", method: .get, parameters: nil, requiresAuth: true)
+        repository.fetchUser()
             .observe(on: MainScheduler.instance)
     }
 
     private func updateNicknameSingle(_ newName: String) -> Single<UpdateNicknameResponse> {
-        NetworkManager.shared
-            .request("/api/v1/user/nickname", method: .patch, parameters: ["nickname": newName], requiresAuth: true)
+        repository.updateNickname(newName)
             .observe(on: MainScheduler.instance)
             .catch { [weak self] error in
                 let message = self?.parseNicknameErrorMessage(error) ?? error.localizedDescription
@@ -194,10 +193,7 @@ final class MyPageViewModel: BaseViewModel {
     }
 
     private func performWithdrawalSingle() -> Single<Void> {
-        let req: Single<WithdrawResponse> = NetworkManager.shared
-            .request("/api/v1/user/withdraw", method: .delete, parameters: nil, requiresAuth: true)
-
-        return req
+        repository.withdraw()
             .observe(on: MainScheduler.instance)
             .flatMap { [weak self] response -> Single<Void> in
                 guard let self else { return .error(MyPageViewModelError.message("알 수 없는 오류가 발생했습니다.")) }
@@ -241,42 +237,18 @@ final class MyPageViewModel: BaseViewModel {
     }
 
     private func requestPresignedProfileURLSingle(mimeType: ImageMimeType) -> Single<PresignedProfileUpload> {
-        NetworkManager.shared
-            .request("/api/v1/user/profile", method: .get, parameters: ["mimeType": mimeType.rawValue], requiresAuth: true)
+        repository.requestPresignedProfileURL(mimeTypeRawValue: mimeType.rawValue)
             .observe(on: MainScheduler.instance)
     }
 
     private func notifyProfileUpdatedSingle(objectKey: String) -> Single<Bool> {
-        NetworkManager.shared
-            .request("/api/v1/user/profile-updated", method: .patch, parameters: ["s3objectKey": objectKey], requiresAuth: true)
+        repository.notifyProfileUpdated(objectKey: objectKey)
             .observe(on: MainScheduler.instance)
             .map { (res: ProfileUpdatedResponse) in res.success }
     }
 
     private func uploadImageDataToS3Single(_ data: Data, contentType: String, to urlString: String) -> Single<Void> {
-        Single.create { single in
-            guard let url = URL(string: urlString) else {
-                single(.failure(MyPageViewModelError.message("유효하지 않은 URL입니다.")))
-                return Disposables.create()
-            }
-
-            var headers = HTTPHeaders()
-            headers.add(name: "Content-Type", value: contentType)
-
-            let request = AF.upload(data, to: url, method: .put, headers: headers)
-                .validate(statusCode: 200..<300)
-                .response { response in
-                    if let error = response.error {
-                        single(.failure(error))
-                    } else {
-                        single(.success(()))
-                    }
-                }
-
-            return Disposables.create {
-                request.cancel()
-            }
-        }
+        repository.uploadImageDataToS3(data, contentType: contentType, to: urlString)
     }
 
     private func clearAllAppDataSingle() -> Single<Void> {
