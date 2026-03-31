@@ -43,4 +43,42 @@ final class CalendarRepository {
             }
         }
     }
+
+    func uploadImageDataToS3(
+        _ data: Data,
+        contentType: String,
+        to urlString: String,
+        progress: ((Double) -> Void)? = nil
+    ) -> Single<Void> {
+        Single.create { single in
+            guard let url = URL(string: urlString) else {
+                single(.failure(NSError(domain: "InvalidURL", code: -1)))
+                return Disposables.create()
+            }
+
+            let headers: HTTPHeaders = ["Content-Type": contentType]
+            let request = Self.afSession.upload(data, to: url, method: .put, headers: headers)
+                .uploadProgress { prog in
+                    progress?(prog.fractionCompleted)
+                }
+                .validate(statusCode: 200..<300)
+                .response { response in
+                    if let err = response.error {
+                        LogNetwork("[S3] upload failed — status=\(response.response?.statusCode ?? -1), error=\(err.localizedDescription)")
+                        if let bodyData = response.data, let body = String(data: bodyData, encoding: .utf8) {
+                            LogNetwork("[S3] upload error body — \(body)")
+                        }
+                        single(.failure(err))
+                    } else {
+                        let status = response.response?.statusCode ?? -1
+                        LogNetwork("[S3] upload success — status=\(status)")
+                        single(.success(()))
+                    }
+                }
+
+            return Disposables.create {
+                request.cancel()
+            }
+        }
+    }
 }

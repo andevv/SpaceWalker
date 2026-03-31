@@ -9,6 +9,21 @@ import Foundation
 import UIKit
 import RxSwift
 
+struct MissionSubmissionRequest {
+    let spaceId: Int
+    let imageData: Data
+    let mimeType: String
+    let missionId: Int
+    let missionTitle: String
+    let timezone: String
+    let isPublic: Bool
+}
+
+struct MissionSubmissionResult {
+    let s3objectKey: String
+    let response: SpaceRepository.SubmitMissionResponse
+}
+
 final class CalendarViewModel {
     private let repository = SpaceRepository()
     private let calendarRepository = CalendarRepository()
@@ -21,6 +36,52 @@ final class CalendarViewModel {
 
     func fetchMySpaces() -> Single<[JoinedSpace]> {
         repository.fetchMySpaces()
+    }
+
+    func submitMission(
+        request: MissionSubmissionRequest,
+        progress: ((Double) -> Void)? = nil,
+        onUploaded: ((String) -> Void)? = nil
+    ) -> Single<MissionSubmissionResult> {
+        repository.requestPresignedUpload(
+            spaceId: request.spaceId,
+            mimeType: request.mimeType,
+            timezone: request.timezone
+        )
+        .flatMap { [weak self] presigned -> Single<MissionSubmissionResult> in
+            guard let self else {
+                return .error(NSError(domain: "CalendarViewModel", code: -1))
+            }
+
+            return self.calendarRepository.uploadImageDataToS3(
+                request.imageData,
+                contentType: request.mimeType,
+                to: presigned.mainImageUrl,
+                progress: progress
+            )
+            .flatMap { [weak self] _ -> Single<MissionSubmissionResult> in
+                guard let self else {
+                    return .error(NSError(domain: "CalendarViewModel", code: -1))
+                }
+                onUploaded?(presigned.mainImageKey)
+
+                let daily = SpaceRepository.DailyMissionSubmit(
+                    missionId: request.missionId,
+                    title: request.missionTitle
+                )
+
+                return self.repository.submitMission(
+                    spaceId: request.spaceId,
+                    s3objectKey: presigned.mainImageKey,
+                    dailyMission: daily,
+                    isPublic: request.isPublic,
+                    timezone: request.timezone
+                )
+                .map { resp in
+                    MissionSubmissionResult(s3objectKey: presigned.mainImageKey, response: resp)
+                }
+            }
+        }
     }
 
     func fetchSpaceActivities(spaceId: Int, year: Int, month: Int, timezone: String) -> Single<CalendarActivitiesResult> {

@@ -15,7 +15,6 @@ import RxSwift
 import ImageIO
 import UniformTypeIdentifiers
 import RealmSwift
-import Alamofire
 
 final class CalendarViewController: UIViewController {
     // Loading overlay for calendar image fetching
@@ -115,7 +114,6 @@ final class CalendarViewController: UIViewController {
 
     // Added properties for mission submission flow
     private var isSubmittingMission: Bool = false
-    private var currentUploadTask: Request?
 
     private var currentDailyMissionId: Int?
     private var pendingPhotoMeta: CalendarPendingPhotoMeta?
@@ -135,7 +133,6 @@ final class CalendarViewController: UIViewController {
     private var pendingCameraPresentation: Bool = false
 
     // MARK: - Dependencies
-    private let repository = SpaceRepository()
     private let viewModel = CalendarViewModel()
     private let disposeBag = DisposeBag()
 
@@ -949,22 +946,6 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
     }
 }
 
-// MARK: - Networking Utilities
-extension CalendarViewController {
-    // Upload 전용 Alamofire 세션 (URLCache 설정)
-    private static let afSession: Session = {
-        let config = URLSessionConfiguration.default
-        config.requestCachePolicy = .returnCacheDataElseLoad
-        config.urlCache = URLCache(
-            memoryCapacity: 50 * 1024 * 1024, // 50MB
-            diskCapacity: 200 * 1024 * 1024,  // 200MB
-            diskPath: "calendar.image.cache"
-        )
-        return Session(configuration: config)
-    }()
-
-}
-
 // MARK: - Save with Location (PHPhotoLibrary)
 extension CalendarViewController {
 
@@ -1294,71 +1275,40 @@ extension CalendarViewController {
         activityIndicator.startAnimating()
 
         let requestStart = Date()
-        repository.requestPresignedUpload(spaceId: spaceId, mimeType: mimeType, timezone: TimeZone.current.identifier)
-            .flatMap { [weak self] (resp: SpaceRepository.PresignedUploadResponse) -> Single<SpaceRepository.SubmitMissionResponse> in
-                guard let self = self else { return .error(NSError(domain: "CalendarVC", code: -1)) }
-                let uploadURLString = resp.mainImageUrl
-                guard let uploadURL = URL(string: uploadURLString) else {
-                    return .error(NSError(domain: "CalendarVC", code: -2, userInfo: [NSLocalizedDescriptionKey: "잘못된 업로드 URL"]))
-                }
+        let request = MissionSubmissionRequest(
+            spaceId: spaceId,
+            imageData: imageData,
+            mimeType: mimeType,
+            missionId: self.currentDailyMissionId ?? 1,
+            missionTitle: missionTitle,
+            timezone: TimeZone.current.identifier,
+            isPublic: true
+        )
 
-                // S3 PUT upload
-                return Single<SpaceRepository.SubmitMissionResponse>.create { [weak self] single in
-                    guard let self = self else { return Disposables.create() }
-                    let headers: HTTPHeaders = ["Content-Type": mimeType]
-                    let req = CalendarViewController.afSession.upload(imageData, to: uploadURL, method: .put, headers: headers)
-                        .uploadProgress { prog in
-                            DispatchQueue.main.async {
-                                self.uploadProgressView.isHidden = false
-                                self.uploadProgressView.progress = Float(prog.fractionCompleted)
-                            }
-                        }
-                        .validate(statusCode: 200..<300)
-                        .response { response in
-                            if let err = response.error {
-                                LogNetwork("[S3] upload failed — status=\(response.response?.statusCode ?? -1), error=\(err.localizedDescription)")
-                                if let data = response.data, let body = String(data: data, encoding: .utf8) {
-                                    LogNetwork("[S3] upload error body — \(body)")
-                                }
-                                single(.failure(err))
-                                return
-                            }
-                            let status = response.response?.statusCode ?? -1
-                            if 200..<300 ~= status {
-                                LogNetwork("[S3] upload success — status=\(status)")
-                                
-                                // Persist metadata to Realm now with the real S3 key
-                                if let pending = self.pendingPhotoMeta {
-                                    self.persistPhotoMetadata(image: pending.image,
-                                                              capturedAt: pending.capturedAt,
-                                                              location: pending.location,
-                                                              s3Key: resp.mainImageKey,
-                                                              mimeType: mimeType)
-                                }
-                                
-                                // Proceed to submit mission
-                                let daily = SpaceRepository.DailyMissionSubmit(missionId: self.currentDailyMissionId ?? 1, title: missionTitle)
-                                self.repository.submitMission(spaceId: spaceId, s3objectKey: resp.mainImageKey, dailyMission: daily, isPublic: true, timezone: TimeZone.current.identifier)
-                                    .subscribe(onSuccess: { submitResp in
-                                        single(.success(submitResp))
-                                    }, onFailure: { err in
-                                        single(.failure(err))
-                                    })
-                                    .disposed(by: self.disposeBag)
-                            } else {
-                                LogNetwork("[S3] upload non-200 — status=\(status)")
-                                single(.failure(NSError(domain: "CalendarVC", code: status, userInfo: [NSLocalizedDescriptionKey: "S3 업로드 실패 (\(status))"])) )
-                            }
-                        }
-                    self.currentUploadTask = req
-                    return Disposables.create { [weak self] in
-                        self?.currentUploadTask?.cancel()
-                    }
+        viewModel.submitMission(
+            request: request,
+            progress: { [weak self] fraction in
+                guard let self else { return }
+                DispatchQueue.main.async {
+                    self.uploadProgressView.isHidden = false
+                    self.uploadProgressView.progress = Float(fraction)
                 }
+            },
+            onUploaded: { [weak self] s3Key in
+                guard let self, let pending = self.pendingPhotoMeta else { return }
+                self.persistPhotoMetadata(
+                    image: pending.image,
+                    capturedAt: pending.capturedAt,
+                    location: pending.location,
+                    s3Key: s3Key,
+                    mimeType: mimeType
+                )
             }
+        )
             .observe(on: MainScheduler.instance)
-            .subscribe(onSuccess: { [weak self] (resp: SpaceRepository.SubmitMissionResponse) in
+            .subscribe(onSuccess: { [weak self] result in
                 guard let self = self else { return }
+                let resp = result.response
                 let elapsed = Date().timeIntervalSince(requestStart)
                 LogNetwork("[Mission] submit success — elapsed=\(String(format: "%.2f", elapsed))s, success=\(resp.success)")
                 self.activityIndicator.stopAnimating()
