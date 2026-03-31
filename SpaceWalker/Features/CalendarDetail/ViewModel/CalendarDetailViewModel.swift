@@ -34,6 +34,7 @@ final class CalendarDetailViewModel: BaseViewModel {
 
     private let identifier: SpacePostIdentifier
     private let repository = SpaceRepository()
+    private let calendarDetailRepository = CalendarDetailRepository()
 
     private let detailRelay: BehaviorRelay<SpacePhotoDetailModel>
     private let deletingRelay = BehaviorRelay<Bool>(value: false)
@@ -121,7 +122,7 @@ final class CalendarDetailViewModel: BaseViewModel {
                 self.detailRelay.accept(detail)
             }
 
-            if let imageResult = await fetchImageData(from: response.photoUrl) {
+            if let imageResult = await calendarDetailRepository.fetchImagePayload(from: response.photoUrl) {
                 detail.image = imageResult.image
 
                 if hasLocalMeta {
@@ -137,7 +138,7 @@ final class CalendarDetailViewModel: BaseViewModel {
             }
 
             if let profileURL = response.author.profileImageUrl,
-               let profileImage = await fetchImage(from: profileURL) {
+               let profileImage = await calendarDetailRepository.fetchImage(from: profileURL) {
                 detail.authorProfileImage = profileImage
                 await MainActor.run {
                     self.detailRelay.accept(detail)
@@ -235,34 +236,6 @@ final class CalendarDetailViewModel: BaseViewModel {
             }
         } catch {
             LogGeneral("Realm delete failed: \(error.localizedDescription)")
-        }
-    }
-
-    private func fetchImageData(from urlString: String) async -> (image: UIImage?, byteCount: Int)? {
-        guard let url = URL(string: urlString) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                return nil
-            }
-            return (UIImage(data: data), data.count)
-        } catch {
-            return nil
-        }
-    }
-
-    private func fetchImage(from urlString: String) async -> UIImage? {
-        guard let url = URL(string: urlString) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                return nil
-            }
-            return UIImage(data: data)
-        } catch {
-            return nil
         }
     }
 
