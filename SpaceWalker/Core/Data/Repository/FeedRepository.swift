@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 import RxSwift
 import Alamofire
 
@@ -38,6 +39,26 @@ public struct FeedPostDTO: Decodable {
 }
 
 final class FeedRepository {
+    func fetchImage(url: URL) -> Single<UIImage?> {
+        Single.create { single in
+            let request = AF.request(url, method: .get)
+                .validate(statusCode: 200..<300)
+                .responseData { response in
+                    switch response.result {
+                    case .success(let data):
+                        single(.success(UIImage(data: data)))
+                    case .failure(let error):
+                        LogNetwork("[FeedRepository] image request failed — url=\(url.absoluteString), error=\(error.localizedDescription)")
+                        single(.success(nil))
+                    }
+                }
+
+            return Disposables.create {
+                request.cancel()
+            }
+        }
+    }
+
     func fetchFeed(spaceId: Int?, page: Int = 1, size: Int = 20) -> Single<FeedResponse> {
         var params: [String: Any] = [
             "page": page,

@@ -97,12 +97,13 @@ final class FeedDetailViewModel: BaseViewModel {
     }
 
     private func loadImage(from url: URL, completion: @escaping (UIImage?) -> Void) {
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
-            let image = data.flatMap { UIImage(data: $0) }
-            DispatchQueue.main.async {
+        feedRepository.fetchImage(url: url)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { image in
                 completion(image)
-            }
-        }
-        task.resume()
+            }, onFailure: { _ in
+                completion(nil)
+            })
+            .disposed(by: disposeBag)
     }
 }
