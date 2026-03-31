@@ -7,12 +7,13 @@
 
 import Foundation
 import UIKit
-import Alamofire
 import RxSwift
 
 final class CalendarViewModel {
     private let repository = SpaceRepository()
+    private let calendarRepository = CalendarRepository()
     private let imageCache = NSCache<NSString, UIImage>()
+    private let disposeBag = DisposeBag()
 
     init() {
         imageCache.countLimit = 150
@@ -73,33 +74,15 @@ final class CalendarViewModel {
                 }
             }
     }
-
-    // MARK: - Image Loading
-    private static let afSession: Session = {
-        let config = URLSessionConfiguration.default
-        config.requestCachePolicy = .returnCacheDataElseLoad
-        config.urlCache = URLCache(
-            memoryCapacity: 50 * 1024 * 1024,
-            diskCapacity: 200 * 1024 * 1024,
-            diskPath: "calendar.image.cache"
-        )
-        return Session(configuration: config)
-    }()
-
     private func loadImage(from url: URL, completion: @escaping (UIImage?) -> Void) {
-        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 30)
-        CalendarViewModel.afSession.request(request)
-            .validate(statusCode: 200..<400)
-            .responseData(queue: .global(qos: .userInitiated)) { response in
-                switch response.result {
-                case .success(let data):
-                    let image = UIImage(data: data)
-                    DispatchQueue.main.async { completion(image) }
-                case .failure(let error):
-                    LogNetwork("[AF] image request failed — url=\(url.absoluteString), error=\(error.localizedDescription)")
-                    DispatchQueue.main.async { completion(nil) }
-                }
-            }
+        calendarRepository.fetchImage(url: url)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onSuccess: { image in
+                completion(image)
+            }, onFailure: { _ in
+                completion(nil)
+            })
+            .disposed(by: disposeBag)
     }
 
     // MARK: - Date Helpers
