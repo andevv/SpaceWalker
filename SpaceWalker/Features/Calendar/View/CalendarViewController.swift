@@ -14,7 +14,6 @@ import FSCalendar
 import RxSwift
 import ImageIO
 import UniformTypeIdentifiers
-import RealmSwift
 
 final class CalendarViewController: UIViewController {
     // Loading overlay for calendar image fetching
@@ -113,12 +112,9 @@ final class CalendarViewController: UIViewController {
     private var currentFetchKey: String?
 
     // Added properties for mission submission flow
-    private var isSubmittingMission: Bool = false
 
     private var currentDailyMissionId: Int?
     private var pendingPhotoMeta: CalendarPendingPhotoMeta?
-    // Tracks the most recent local metadata row for the current capture
-    private var lastSavedPhotoObjectId: ObjectId?
 
     // Full-screen overlay option during submission
     private var isLoadingFullScreen: Bool = false
@@ -932,7 +928,7 @@ extension CalendarViewController: UIImagePickerControllerDelegate, UINavigationC
                     let missionTitle = self.missionLabel.text ?? "오늘의 미션"
                     // Encode a fresh image without embedded metadata (GPS removed) for upload
                     if let encoded = self.encodeImageForUpload(image, originalMetadata: metadata) {
-                        self.startMissionSubmissionTransaction(spaceId: spaceId, image: image, imageData: encoded.data, mimeType: encoded.mimeType, missionTitle: missionTitle)
+                        self.startMissionSubmissionTransaction(spaceId: spaceId, imageData: encoded.data, mimeType: encoded.mimeType, missionTitle: missionTitle)
                     } else {
                         self.showAlert(title: "업로드 준비 실패", message: "이미지를 인코딩하지 못했습니다.")
                     }
@@ -1031,64 +1027,6 @@ extension CalendarViewController {
         return mutableData as Data
     }
     
-    /// Realm에 PhotoMetadata 저장
-    private func persistPhotoMetadata(image: UIImage, capturedAt: Date, location: CLLocation?, s3Key: String, mimeType: String? = nil) {
-        // 픽셀 단위 해상도 계산
-        let pixelWidth = Int(image.size.width * image.scale)
-        let pixelHeight = Int(image.size.height * image.scale)
-
-        // 위치 좌표 (없으면 0으로 저장)
-        let lat = location?.coordinate.latitude ?? 0.0
-        let lon = location?.coordinate.longitude ?? 0.0
-
-        do {
-            let realm = try Realm()
-            let meta = PhotoMetadata()
-            meta.s3Key = s3Key
-            meta.capturedAt = capturedAt
-            meta.width = pixelWidth
-            meta.height = pixelHeight
-            meta.latitude = lat
-            meta.longitude = lon
-            if let mimeType { meta.mimeType = mimeType }
-            
-            // Attach optional context
-            if self.joinedSpaces.indices.contains(self.selectedChipIndex) {
-                meta.spaceId = self.joinedSpaces[self.selectedChipIndex].id
-            } else {
-                meta.spaceId = 0
-            }
-            meta.missionId = self.currentDailyMissionId
-            meta.missionTitle = self.missionLabel.text
-            
-            // Save device name (prefer value extracted at capture time)
-            if let pending = self.pendingPhotoMeta, let dev = pending.deviceName, !dev.isEmpty {
-                meta.deviceName = dev
-            } else {
-                meta.deviceName = UIDevice.current.model
-            }
-            
-            try realm.write {
-                realm.add(meta)
-                self.lastSavedPhotoObjectId = meta.id
-                
-                if let url = realm.configuration.fileURL {
-                    #if targetEnvironment(simulator)
-                    // 시뮬레이터: 이 경로는 macOS에서 직접 접근 가능 (Finder에서 열 수 있음)
-                    LogGeneral("Realm file (Finder accessible): \(url.path)")
-                    LogGeneral("Open in Finder with: open \"\(url.deletingLastPathComponent().path)\"")
-                    #else
-                    // 실기기: macOS Finder에서 직접 접근 불가. Files 앱 또는 Xcode > Devices and Simulators에서 컨테이너 다운로드 필요
-                    LogGeneral("Realm file (on iOS device): \(url.path)")
-                    LogGeneral("Tip: In Xcode, Window > Devices and Simulators > select device > Installed Apps > SpaceWalker > Download Container…")
-                    #endif
-                }
-            }
-        } catch {
-            // 개발 중 로깅
-            LogGeneral("Realm write failed: \(error.localizedDescription)")
-        }
-    }
 }
 
 // MARK: - CLLocationManagerDelegate
@@ -1242,9 +1180,8 @@ extension CalendarViewController {
         return data as Data
     }
 
-    private func startMissionSubmissionTransaction(spaceId: Int, image: UIImage, imageData: Data, mimeType: String, missionTitle: String) {
-        if isSubmittingMission { return }
-        isSubmittingMission = true
+    private func startMissionSubmissionTransaction(spaceId: Int, imageData: Data, mimeType: String, missionTitle: String) {
+        guard viewModel.beginMissionSubmission() else { return }
         LogNetwork("[Mission] start submission transaction — spaceId=\(spaceId), mime=\(mimeType)")
 
         // Record mimeType into pending meta for later Realm persistence
@@ -1296,13 +1233,7 @@ extension CalendarViewController {
             },
             onUploaded: { [weak self] s3Key in
                 guard let self, let pending = self.pendingPhotoMeta else { return }
-                self.persistPhotoMetadata(
-                    image: pending.image,
-                    capturedAt: pending.capturedAt,
-                    location: pending.location,
-                    s3Key: s3Key,
-                    mimeType: mimeType
-                )
+                self.viewModel.savePhotoMetadata(pending: pending, s3Key: s3Key)
             }
         )
             .observe(on: MainScheduler.instance)
@@ -1322,7 +1253,7 @@ extension CalendarViewController {
                 self.isLoadingFullScreen = false
                 self.uploadProgressView.isHidden = true
 
-                self.isSubmittingMission = false
+                self.viewModel.endMissionSubmission()
                 self.showAlert(title: "미션 제출 완료", message: "사진 업로드와 제출이 완료되었습니다.")
                 
                 // Refresh calendar by fetching latest activities for the current page/space
@@ -1334,7 +1265,7 @@ extension CalendarViewController {
                 guard let self = self else { return }
                 let elapsed = Date().timeIntervalSince(requestStart)
                 LogNetwork("[Mission] submit failed — elapsed=\(String(format: "%.2f", elapsed))s, error=\(err.localizedDescription)")
-                if let serverBody = self.extractServerErrorMessage(from: err) {
+                if let serverBody = self.viewModel.missionServerErrorMessage(from: err) {
                     LogNetwork("[Mission] submit server error body — \(serverBody)")
                 }
                 self.activityIndicator.stopAnimating()
@@ -1348,33 +1279,11 @@ extension CalendarViewController {
                 self.isLoadingFullScreen = false
                 self.uploadProgressView.isHidden = true
 
-                let serverMsg = self.extractServerErrorMessage(from: err)
-                let message = serverMsg ?? err.localizedDescription
+                let message = self.viewModel.missionErrorMessage(from: err)
                 self.showAlert(title: "미션 제출 실패", message: message)
-                self.isSubmittingMission = false
+                self.viewModel.endMissionSubmission()
             })
             .disposed(by: disposeBag)
-    }
-
-    /// Try to extract server-provided error message from an Error produced by Alamofire/Network layer
-    private func extractServerErrorMessage(from error: Error) -> String? {
-        let nsErr = error as NSError
-        // Common Alamofire userInfo key for response data
-        let alamofireDataKey = "com.alamofire.serialization.response.error.data"
-        if let data = nsErr.userInfo[alamofireDataKey] as? Data, let text = String(data: data, encoding: .utf8) {
-            return text
-        }
-        // Fallback: sometimes other keys are used
-        let altKeys = ["AFNetworkingOperationFailingURLResponseDataErrorKey", NSLocalizedDescriptionKey]
-        for key in altKeys {
-            if let data = nsErr.userInfo[key] as? Data, let text = String(data: data, encoding: .utf8) {
-                return text
-            }
-            if let text = nsErr.userInfo[key] as? String, !text.isEmpty { return text }
-        }
-        // As a last resort, return the error's description
-        let desc = nsErr.userInfo[NSLocalizedDescriptionKey] as? String
-        return desc
     }
 
     private func showAlert(title: String, message: String) {

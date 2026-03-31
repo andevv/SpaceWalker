@@ -27,8 +27,11 @@ struct MissionSubmissionResult {
 final class CalendarViewModel {
     private let repository = SpaceRepository()
     private let calendarRepository = CalendarRepository()
+    private let metadataRepository = CalendarMetadataRepository()
     private let imageCache = NSCache<NSString, UIImage>()
     private let disposeBag = DisposeBag()
+    private let missionStateLock = NSLock()
+    private var isMissionSubmitting = false
 
     init() {
         imageCache.countLimit = 150
@@ -36,6 +39,48 @@ final class CalendarViewModel {
 
     func fetchMySpaces() -> Single<[JoinedSpace]> {
         repository.fetchMySpaces()
+    }
+
+    func beginMissionSubmission() -> Bool {
+        missionStateLock.lock()
+        defer { missionStateLock.unlock() }
+        guard isMissionSubmitting == false else { return false }
+        isMissionSubmitting = true
+        return true
+    }
+
+    func endMissionSubmission() {
+        missionStateLock.lock()
+        isMissionSubmitting = false
+        missionStateLock.unlock()
+    }
+
+    func savePhotoMetadata(pending: CalendarPendingPhotoMeta, s3Key: String) {
+        do {
+            _ = try metadataRepository.savePhotoMetadata(pending: pending, s3Key: s3Key)
+        } catch {
+            LogGeneral("Realm write failed: \(error.localizedDescription)")
+        }
+    }
+
+    func missionServerErrorMessage(from error: Error) -> String? {
+        let nsErr = error as NSError
+        let alamofireDataKey = "com.alamofire.serialization.response.error.data"
+        if let data = nsErr.userInfo[alamofireDataKey] as? Data, let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        let altKeys = ["AFNetworkingOperationFailingURLResponseDataErrorKey", NSLocalizedDescriptionKey]
+        for key in altKeys {
+            if let data = nsErr.userInfo[key] as? Data, let text = String(data: data, encoding: .utf8) {
+                return text
+            }
+            if let text = nsErr.userInfo[key] as? String, !text.isEmpty { return text }
+        }
+        return nsErr.userInfo[NSLocalizedDescriptionKey] as? String
+    }
+
+    func missionErrorMessage(from error: Error) -> String {
+        missionServerErrorMessage(from: error) ?? error.localizedDescription
     }
 
     func submitMission(
