@@ -57,6 +57,7 @@ enum MyPageLocationTransferEvent {
 final class MyPageViewModel: BaseViewModel {
     private let repository = MyPageRepository()
     private let locationTransferRepository = LocationMetadataTransferRepository()
+    private var currentUserId: Int64?
 
     struct Input {
         let viewDidLoad: Observable<Void>
@@ -95,6 +96,7 @@ final class MyPageViewModel: BaseViewModel {
                 guard let self else { return }
                 switch event {
                 case .next(let user):
+                    self.currentUserId = user.userId
                     self.userRelay.accept(user)
                 case .error(let error):
                     self.toastRelay.accept("사용자 정보 조회 실패: \(error.localizedDescription)")
@@ -295,8 +297,12 @@ final class MyPageViewModel: BaseViewModel {
                 single(.failure(MyPageViewModelError.message("알 수 없는 오류가 발생했습니다.")))
                 return Disposables.create()
             }
+            guard let currentUserId = self.currentUserId else {
+                single(.failure(MyPageViewModelError.message("사용자 정보를 확인한 뒤 다시 시도해주세요.")))
+                return Disposables.create()
+            }
             do {
-                let result = try self.locationTransferRepository.exportLocationMetadataPack()
+                let result = try self.locationTransferRepository.exportLocationMetadataPack(ownerUserId: currentUserId)
                 single(.success(result))
             } catch {
                 single(.failure(MyPageViewModelError.message(error.localizedDescription)))
@@ -312,6 +318,10 @@ final class MyPageViewModel: BaseViewModel {
                 single(.failure(MyPageViewModelError.message("알 수 없는 오류가 발생했습니다.")))
                 return Disposables.create()
             }
+            guard let currentUserId = self.currentUserId else {
+                single(.failure(MyPageViewModelError.message("사용자 정보를 확인한 뒤 다시 시도해주세요.")))
+                return Disposables.create()
+            }
 
             let needsSecureAccess = url.startAccessingSecurityScopedResource()
             defer {
@@ -321,7 +331,10 @@ final class MyPageViewModel: BaseViewModel {
             }
 
             do {
-                let result = try self.locationTransferRepository.importLocationMetadataPack(from: url)
+                let result = try self.locationTransferRepository.importLocationMetadataPack(
+                    from: url,
+                    expectedOwnerUserId: currentUserId
+                )
                 single(.success(result))
             } catch {
                 single(.failure(MyPageViewModelError.message(error.localizedDescription)))

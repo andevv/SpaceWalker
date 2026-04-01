@@ -12,6 +12,8 @@ import RealmSwift
 private enum LocationMetadataTransferError: LocalizedError {
     case emptyData
     case invalidFile
+    case missingOwner
+    case ownerMismatch
     case missingChecksum
     case checksumMismatch
 
@@ -21,6 +23,10 @@ private enum LocationMetadataTransferError: LocalizedError {
             return "내보낼 위치 메타데이터가 없습니다."
         case .invalidFile:
             return "가져오기 파일 형식이 올바르지 않습니다."
+        case .missingOwner:
+            return "가져오기 파일의 사용자 정보가 없습니다."
+        case .ownerMismatch:
+            return "다른 계정에서 내보낸 위치 데이터 파일입니다."
         case .missingChecksum:
             return "가져오기 파일에 체크섬 정보가 없습니다."
         case .checksumMismatch:
@@ -36,10 +42,11 @@ final class LocationMetadataTransferRepository {
         let schemaVersion: Int
         let exportedAt: Date
         let appVersion: String
+        let ownerUserId: Int64
         let items: [LocationMetadataTransferItem]
     }
 
-    func exportLocationMetadataPack() throws -> (fileURL: URL, itemCount: Int) {
+    func exportLocationMetadataPack(ownerUserId: Int64) throws -> (fileURL: URL, itemCount: Int) {
         let realm = try Realm()
         let rows = realm.objects(PhotoMetadata.self).sorted(byKeyPath: "capturedAt", ascending: true)
 
@@ -70,6 +77,7 @@ final class LocationMetadataTransferRepository {
                 schemaVersion: schemaVersion,
                 exportedAt: exportedAt,
                 appVersion: appVersion,
+                ownerUserId: ownerUserId,
                 items: Array(items)
             )
         )
@@ -78,6 +86,7 @@ final class LocationMetadataTransferRepository {
             schemaVersion: schemaVersion,
             exportedAt: exportedAt,
             appVersion: appVersion,
+            ownerUserId: ownerUserId,
             checksum: checksum,
             items: Array(items)
         )
@@ -93,12 +102,18 @@ final class LocationMetadataTransferRepository {
         return (destination, items.count)
     }
 
-    func importLocationMetadataPack(from fileURL: URL) throws -> LocationMetadataImportResult {
+    func importLocationMetadataPack(from fileURL: URL, expectedOwnerUserId: Int64) throws -> LocationMetadataImportResult {
         let data = try Data(contentsOf: fileURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let pack = try? decoder.decode(LocationMetadataTransferPack.self, from: data) else {
             throw LocationMetadataTransferError.invalidFile
+        }
+        guard let ownerUserId = pack.ownerUserId else {
+            throw LocationMetadataTransferError.missingOwner
+        }
+        guard ownerUserId == expectedOwnerUserId else {
+            throw LocationMetadataTransferError.ownerMismatch
         }
         guard let checksum = pack.checksum, checksum.isEmpty == false else {
             throw LocationMetadataTransferError.missingChecksum
@@ -108,6 +123,7 @@ final class LocationMetadataTransferRepository {
                 schemaVersion: pack.schemaVersion,
                 exportedAt: pack.exportedAt,
                 appVersion: pack.appVersion,
+                ownerUserId: ownerUserId,
                 items: pack.items
             )
         )
