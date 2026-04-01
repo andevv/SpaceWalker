@@ -109,8 +109,46 @@ final class MyPageViewController: UIViewController {
     private lazy var policyButton = makeSettingButton(title: "개인정보 처리방침")
     private lazy var termsButton = makeSettingButton(title: "서비스 이용약관")
     private lazy var ossButton = makeSettingButton(title: "오픈소스 라이센스")
-    private lazy var exportLocationButton = makeSettingButton(title: "위치 데이터 내보내기")
-    private lazy var importLocationButton = makeSettingButton(title: "위치 데이터 가져오기")
+    
+    private let locationTransferCard: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.08)
+        view.layer.cornerRadius = 16
+        view.layer.borderWidth = 1
+        view.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.24).cgColor
+        return view
+    }()
+    private let locationTransferIconView: UIImageView = {
+        let iv = UIImageView(image: UIImage(systemName: "arrow.triangle.2.circlepath.icloud"))
+        iv.tintColor = .systemBlue
+        iv.contentMode = .scaleAspectFit
+        return iv
+    }()
+    private let locationTransferTitleLabel: UILabel = {
+        let lb = UILabel()
+        lb.text = "위치 데이터 이전"
+        lb.font = .systemFont(ofSize: 16, weight: .semibold)
+        lb.textColor = .label
+        return lb
+    }()
+    private let locationTransferDescriptionLabel: UILabel = {
+        let lb = UILabel()
+        lb.text = "기기 변경 시 위치 메타데이터를 내보내고 가져올 수 있어요."
+        lb.font = .systemFont(ofSize: 13, weight: .regular)
+        lb.textColor = .secondaryLabel
+        lb.numberOfLines = 2
+        return lb
+    }()
+    private lazy var exportLocationButton = makeTransferActionButton(
+        title: "내보내기",
+        image: UIImage(systemName: "square.and.arrow.up"),
+        filled: true
+    )
+    private lazy var importLocationButton = makeTransferActionButton(
+        title: "가져오기",
+        image: UIImage(systemName: "square.and.arrow.down"),
+        filled: false
+    )
 
     private let withdrawButton: UIButton = {
         var config = UIButton.Configuration.bordered()
@@ -292,9 +330,7 @@ final class MyPageViewController: UIViewController {
         let settingsStack = UIStackView(arrangedSubviews: [
             policyButton,
             termsButton,
-            ossButton,
-            exportLocationButton,
-            importLocationButton
+            ossButton
         ])
         settingsStack.axis = .vertical
         settingsStack.spacing = 12
@@ -304,10 +340,54 @@ final class MyPageViewController: UIViewController {
             make.top.equalTo(settingsTitle.snp.bottom).offset(12)
             make.leading.trailing.equalToSuperview().inset(20)
         }
+        
+        contentView.addSubview(locationTransferCard)
+        locationTransferCard.snp.makeConstraints { make in
+            make.top.equalTo(settingsStack.snp.bottom).offset(16)
+            make.leading.trailing.equalToSuperview().inset(20)
+        }
+        
+        locationTransferCard.addSubview(locationTransferIconView)
+        locationTransferCard.addSubview(locationTransferTitleLabel)
+        locationTransferCard.addSubview(locationTransferDescriptionLabel)
+        
+        locationTransferIconView.snp.makeConstraints { make in
+            make.top.leading.equalToSuperview().inset(16)
+            make.width.height.equalTo(20)
+        }
+        
+        locationTransferTitleLabel.snp.makeConstraints { make in
+            make.top.equalToSuperview().inset(16)
+            make.leading.equalTo(locationTransferIconView.snp.trailing).offset(8)
+            make.trailing.equalToSuperview().inset(16)
+        }
+        
+        locationTransferDescriptionLabel.snp.makeConstraints { make in
+            make.top.equalTo(locationTransferTitleLabel.snp.bottom).offset(6)
+            make.leading.equalTo(locationTransferTitleLabel)
+            make.trailing.equalToSuperview().inset(16)
+        }
+        
+        let transferButtonsStack = UIStackView(arrangedSubviews: [exportLocationButton, importLocationButton])
+        transferButtonsStack.axis = .vertical
+        transferButtonsStack.spacing = 10
+        locationTransferCard.addSubview(transferButtonsStack)
+        transferButtonsStack.snp.makeConstraints { make in
+            make.top.equalTo(locationTransferDescriptionLabel.snp.bottom).offset(14)
+            make.leading.trailing.bottom.equalToSuperview().inset(16)
+        }
+        
+        exportLocationButton.snp.makeConstraints { make in
+            make.height.equalTo(44)
+        }
+        
+        importLocationButton.snp.makeConstraints { make in
+            make.height.equalTo(44)
+        }
 
         contentView.addSubview(withdrawButton)
         withdrawButton.snp.makeConstraints { make in
-            make.top.equalTo(settingsStack.snp.bottom).offset(28)
+            make.top.equalTo(locationTransferCard.snp.bottom).offset(28)
             make.leading.trailing.equalToSuperview().inset(20)
             make.height.equalTo(52)
             make.bottom.equalToSuperview().inset(24)
@@ -326,6 +406,29 @@ final class MyPageViewController: UIViewController {
         b.layer.borderColor = UIColor.systemGray4.withAlphaComponent(0.6).cgColor
         b.contentHorizontalAlignment = .leading
         return b
+    }
+    
+    private func makeTransferActionButton(title: String, image: UIImage?, filled: Bool) -> UIButton {
+        var config = UIButton.Configuration.filled()
+        config.title = title
+        config.image = image
+        config.imagePadding = 8
+        config.cornerStyle = .medium
+        config.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 14, bottom: 11, trailing: 14)
+        if filled {
+            config.baseBackgroundColor = .systemBlue
+            config.baseForegroundColor = .white
+        } else {
+            config.baseBackgroundColor = .clear
+            config.baseForegroundColor = .systemBlue
+        }
+        let button = UIButton(configuration: config)
+        if filled == false {
+            button.layer.cornerRadius = 11
+            button.layer.borderWidth = 1
+            button.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.45).cgColor
+        }
+        return button
     }
 
     private func bindActions() {
