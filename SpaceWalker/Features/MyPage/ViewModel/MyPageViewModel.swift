@@ -48,14 +48,23 @@ enum MyPageWithdrawalEvent {
     case failure(message: String)
 }
 
+enum MyPageLocationTransferEvent {
+    case exportReady(fileURL: URL, itemCount: Int)
+    case importCompleted(LocationMetadataImportResult)
+    case failure(message: String)
+}
+
 final class MyPageViewModel: BaseViewModel {
     private let repository = MyPageRepository()
+    private let locationTransferRepository = LocationMetadataTransferRepository()
 
     struct Input {
         let viewDidLoad: Observable<Void>
         let nicknameUpdate: Observable<String>
         let avatarUpload: Observable<MyPageAvatarUploadRequest>
         let withdrawalTap: Observable<Void>
+        let exportLocationMetadataTap: Observable<Void>
+        let importLocationMetadataURL: Observable<URL>
     }
 
     struct Output {
@@ -64,6 +73,7 @@ final class MyPageViewModel: BaseViewModel {
         let nicknameChange: Signal<MyPageNicknameChangeEvent>
         let avatarChange: Signal<MyPageAvatarChangeEvent>
         let withdrawal: Signal<MyPageWithdrawalEvent>
+        let locationTransfer: Signal<MyPageLocationTransferEvent>
     }
 
     private let disposeBag = DisposeBag()
@@ -73,6 +83,7 @@ final class MyPageViewModel: BaseViewModel {
     private let nicknameRelay = PublishRelay<MyPageNicknameChangeEvent>()
     private let avatarRelay = PublishRelay<MyPageAvatarChangeEvent>()
     private let withdrawalRelay = PublishRelay<MyPageWithdrawalEvent>()
+    private let locationTransferRelay = PublishRelay<MyPageLocationTransferEvent>()
 
     func transform(input: Input) -> Output {
         input.viewDidLoad
@@ -134,12 +145,39 @@ final class MyPageViewModel: BaseViewModel {
             .bind(to: withdrawalRelay)
             .disposed(by: disposeBag)
 
+        input.exportLocationMetadataTap
+            .flatMapLatest { [weak self] _ -> Observable<MyPageLocationTransferEvent> in
+                guard let self else { return .empty() }
+                return self.exportLocationMetadataSingle()
+                    .asObservable()
+                    .map { .exportReady(fileURL: $0.fileURL, itemCount: $0.itemCount) }
+                    .catch { error in
+                        .just(.failure(message: error.localizedDescription))
+                    }
+            }
+            .bind(to: locationTransferRelay)
+            .disposed(by: disposeBag)
+
+        input.importLocationMetadataURL
+            .flatMapLatest { [weak self] url -> Observable<MyPageLocationTransferEvent> in
+                guard let self else { return .empty() }
+                return self.importLocationMetadataSingle(from: url)
+                    .asObservable()
+                    .map { .importCompleted($0) }
+                    .catch { error in
+                        .just(.failure(message: error.localizedDescription))
+                    }
+            }
+            .bind(to: locationTransferRelay)
+            .disposed(by: disposeBag)
+
         return Output(
             user: userRelay.asDriver(onErrorDriveWith: .empty()),
             toastMessage: toastRelay.asSignal(),
             nicknameChange: nicknameRelay.asSignal(),
             avatarChange: avatarRelay.asSignal(),
-            withdrawal: withdrawalRelay.asSignal()
+            withdrawal: withdrawalRelay.asSignal(),
+            locationTransfer: locationTransferRelay.asSignal()
         )
     }
 
@@ -249,6 +287,49 @@ final class MyPageViewModel: BaseViewModel {
 
     private func uploadImageDataToS3Single(_ data: Data, contentType: String, to urlString: String) -> Single<Void> {
         repository.uploadImageDataToS3(data, contentType: contentType, to: urlString)
+    }
+
+    private func exportLocationMetadataSingle() -> Single<(fileURL: URL, itemCount: Int)> {
+        Single.create { [weak self] single in
+            guard let self else {
+                single(.failure(MyPageViewModelError.message("알 수 없는 오류가 발생했습니다.")))
+                return Disposables.create()
+            }
+            do {
+                let result = try self.locationTransferRepository.exportLocationMetadataPack()
+                single(.success(result))
+            } catch {
+                single(.failure(MyPageViewModelError.message(error.localizedDescription)))
+            }
+            return Disposables.create()
+        }
+        .observe(on: MainScheduler.instance)
+    }
+
+    private func importLocationMetadataSingle(from url: URL) -> Single<LocationMetadataImportResult> {
+        Single.create { [weak self] single in
+            guard let self else {
+                single(.failure(MyPageViewModelError.message("알 수 없는 오류가 발생했습니다.")))
+                return Disposables.create()
+            }
+
+            let needsSecureAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if needsSecureAccess {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            do {
+                let result = try self.locationTransferRepository.importLocationMetadataPack(from: url)
+                single(.success(result))
+            } catch {
+                single(.failure(MyPageViewModelError.message(error.localizedDescription)))
+            }
+
+            return Disposables.create()
+        }
+        .observe(on: MainScheduler.instance)
     }
 
     private func clearAllAppDataSingle() -> Single<Void> {

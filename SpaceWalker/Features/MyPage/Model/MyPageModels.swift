@@ -36,3 +36,31 @@ struct ProfileUpdatedResponse: Decodable {
 struct WithdrawResponse: Decodable {
     let success: Bool
 }
+
+struct LocationMetadataTransferPack: Codable {
+    let schemaVersion: Int
+    let exportedAt: Date
+    let appVersion: String
+    let items: [LocationMetadataTransferItem]
+}
+
+struct LocationMetadataTransferItem: Codable {
+    let s3Key: String
+    let capturedAt: Date
+    let width: Int
+    let height: Int
+    let latitude: Double
+    let longitude: Double
+    let deviceName: String?
+    let spaceId: Int
+    let missionId: Int?
+    let missionTitle: String?
+    let mimeType: String?
+}
+
+struct LocationMetadataImportResult {
+    let insertedCount: Int
+    let updatedCount: Int
+    let skippedCount: Int
+    let totalCount: Int
+}

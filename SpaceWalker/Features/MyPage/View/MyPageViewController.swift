@@ -12,6 +12,7 @@ import Kingfisher
 import PhotosUI
 import RxSwift
 import RxCocoa
+import UniformTypeIdentifiers
 
 final class MyPageViewController: UIViewController {
 
@@ -27,6 +28,8 @@ final class MyPageViewController: UIViewController {
     private let nicknameUpdateSubject = PublishSubject<String>()
     private let avatarUploadSubject = PublishSubject<MyPageAvatarUploadRequest>()
     private let withdrawalTapSubject = PublishSubject<Void>()
+    private let exportLocationMetadataTapSubject = PublishSubject<Void>()
+    private let importLocationMetadataURLSubject = PublishSubject<URL>()
 
     private var pendingNicknameCompletion: ((Bool) -> Void)?
     private var withdrawalLoadingAlert: UIAlertController?
@@ -106,6 +109,8 @@ final class MyPageViewController: UIViewController {
     private lazy var policyButton = makeSettingButton(title: "개인정보 처리방침")
     private lazy var termsButton = makeSettingButton(title: "서비스 이용약관")
     private lazy var ossButton = makeSettingButton(title: "오픈소스 라이센스")
+    private lazy var exportLocationButton = makeSettingButton(title: "위치 데이터 내보내기")
+    private lazy var importLocationButton = makeSettingButton(title: "위치 데이터 가져오기")
 
     private let withdrawButton: UIButton = {
         var config = UIButton.Configuration.bordered()
@@ -136,7 +141,9 @@ final class MyPageViewController: UIViewController {
             viewDidLoad: viewDidLoadSubject.asObservable(),
             nicknameUpdate: nicknameUpdateSubject.asObservable(),
             avatarUpload: avatarUploadSubject.asObservable(),
-            withdrawalTap: withdrawalTapSubject.asObservable()
+            withdrawalTap: withdrawalTapSubject.asObservable(),
+            exportLocationMetadataTap: exportLocationMetadataTapSubject.asObservable(),
+            importLocationMetadataURL: importLocationMetadataURLSubject.asObservable()
         )
 
         let output = viewModel.transform(input: input)
@@ -198,6 +205,20 @@ final class MyPageViewController: UIViewController {
                     self.dismissWithdrawalLoading { [weak self] in
                         self?.showAlert(title: "탈퇴 실패", message: message)
                     }
+                }
+            })
+            .disposed(by: disposeBag)
+
+        output.locationTransfer
+            .emit(onNext: { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .exportReady(let fileURL, let itemCount):
+                    self.presentExportShareSheet(fileURL: fileURL, itemCount: itemCount)
+                case .importCompleted(let result):
+                    self.showImportSummary(result)
+                case .failure(let message):
+                    self.showAlert(title: "위치 데이터 처리 실패", message: message)
                 }
             })
             .disposed(by: disposeBag)
@@ -268,7 +289,13 @@ final class MyPageViewController: UIViewController {
             make.leading.trailing.equalToSuperview().inset(20)
         }
 
-        let settingsStack = UIStackView(arrangedSubviews: [policyButton, termsButton, ossButton])
+        let settingsStack = UIStackView(arrangedSubviews: [
+            policyButton,
+            termsButton,
+            ossButton,
+            exportLocationButton,
+            importLocationButton
+        ])
         settingsStack.axis = .vertical
         settingsStack.spacing = 12
         contentView.addSubview(settingsStack)
@@ -306,6 +333,8 @@ final class MyPageViewController: UIViewController {
         policyButton.addTarget(self, action: #selector(openPolicy), for: .touchUpInside)
         termsButton.addTarget(self, action: #selector(openTerms), for: .touchUpInside)
         ossButton.addTarget(self, action: #selector(openOSS), for: .touchUpInside)
+        exportLocationButton.addTarget(self, action: #selector(didTapExportLocationMetadata), for: .touchUpInside)
+        importLocationButton.addTarget(self, action: #selector(didTapImportLocationMetadata), for: .touchUpInside)
         withdrawButton.addTarget(self, action: #selector(didTapWithdraw), for: .touchUpInside)
         cameraButton.addTarget(self, action: #selector(didTapChangeAvatar), for: .touchUpInside)
     }
@@ -380,6 +409,17 @@ final class MyPageViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    @objc private func didTapExportLocationMetadata() {
+        exportLocationMetadataTapSubject.onNext(())
+    }
+
+    @objc private func didTapImportLocationMetadata() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data, .json], asCopy: true)
+        picker.delegate = self
+        picker.allowsMultipleSelection = false
+        present(picker, animated: true)
+    }
+
     private func presentWithdrawalLoading() {
         guard withdrawalLoadingAlert == nil else { return }
         let loading = UIAlertController(title: nil, message: "탈퇴 처리 중...", preferredStyle: .alert)
@@ -426,6 +466,29 @@ final class MyPageViewController: UIViewController {
         ac.addAction(UIAlertAction(title: "확인", style: .default))
         present(ac, animated: true)
     }
+
+    private func presentExportShareSheet(fileURL: URL, itemCount: Int) {
+        let activity = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+        if let pop = activity.popoverPresentationController {
+            pop.sourceView = exportLocationButton
+            pop.sourceRect = exportLocationButton.bounds
+        }
+        activity.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        present(activity, animated: true)
+        toast("위치 메타데이터 \(itemCount)건을 내보낼 준비가 완료되었습니다.")
+    }
+
+    private func showImportSummary(_ result: LocationMetadataImportResult) {
+        let message = """
+        전체: \(result.totalCount)건
+        신규 추가: \(result.insertedCount)건
+        업데이트: \(result.updatedCount)건
+        건너뜀: \(result.skippedCount)건
+        """
+        showAlert(title: "위치 데이터 가져오기 완료", message: message)
+    }
 }
 
 extension MyPageViewController: PHPickerViewControllerDelegate {
@@ -442,5 +505,12 @@ extension MyPageViewController: PHPickerViewControllerDelegate {
                 self.avatarUploadSubject.onNext(MyPageAvatarUploadRequest(image: image, preferredMime: detected))
             }
         }
+    }
+}
+
+extension MyPageViewController: UIDocumentPickerDelegate {
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else { return }
+        importLocationMetadataURLSubject.onNext(url)
     }
 }
