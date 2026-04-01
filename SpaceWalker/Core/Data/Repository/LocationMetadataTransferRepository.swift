@@ -6,11 +6,14 @@
 //
 
 import Foundation
+import CryptoKit
 import RealmSwift
 
 private enum LocationMetadataTransferError: LocalizedError {
     case emptyData
     case invalidFile
+    case missingChecksum
+    case checksumMismatch
 
     var errorDescription: String? {
         switch self {
@@ -18,12 +21,23 @@ private enum LocationMetadataTransferError: LocalizedError {
             return "내보낼 위치 메타데이터가 없습니다."
         case .invalidFile:
             return "가져오기 파일 형식이 올바르지 않습니다."
+        case .missingChecksum:
+            return "가져오기 파일에 체크섬 정보가 없습니다."
+        case .checksumMismatch:
+            return "가져오기 파일의 무결성 검증에 실패했습니다."
         }
     }
 }
 
 final class LocationMetadataTransferRepository {
     private let schemaVersion = 1
+    
+    private struct ChecksumPayload: Codable {
+        let schemaVersion: Int
+        let exportedAt: Date
+        let appVersion: String
+        let items: [LocationMetadataTransferItem]
+    }
 
     func exportLocationMetadataPack() throws -> (fileURL: URL, itemCount: Int) {
         let realm = try Realm()
@@ -49,10 +63,22 @@ final class LocationMetadataTransferRepository {
             throw LocationMetadataTransferError.emptyData
         }
 
+        let exportedAt = Date()
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let checksum = try makeChecksum(
+            for: ChecksumPayload(
+                schemaVersion: schemaVersion,
+                exportedAt: exportedAt,
+                appVersion: appVersion,
+                items: Array(items)
+            )
+        )
+
         let pack = LocationMetadataTransferPack(
             schemaVersion: schemaVersion,
-            exportedAt: Date(),
-            appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            exportedAt: exportedAt,
+            appVersion: appVersion,
+            checksum: checksum,
             items: Array(items)
         )
 
@@ -73,6 +99,20 @@ final class LocationMetadataTransferRepository {
         decoder.dateDecodingStrategy = .iso8601
         guard let pack = try? decoder.decode(LocationMetadataTransferPack.self, from: data) else {
             throw LocationMetadataTransferError.invalidFile
+        }
+        guard let checksum = pack.checksum, checksum.isEmpty == false else {
+            throw LocationMetadataTransferError.missingChecksum
+        }
+        let expectedChecksum = try makeChecksum(
+            for: ChecksumPayload(
+                schemaVersion: pack.schemaVersion,
+                exportedAt: pack.exportedAt,
+                appVersion: pack.appVersion,
+                items: pack.items
+            )
+        )
+        guard checksum.caseInsensitiveCompare(expectedChecksum) == .orderedSame else {
+            throw LocationMetadataTransferError.checksumMismatch
         }
 
         let realm = try Realm()
@@ -136,5 +176,14 @@ final class LocationMetadataTransferRepository {
         formatter.timeZone = TimeZone.current
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         return formatter.string(from: Date())
+    }
+
+    private func makeChecksum(for payload: ChecksumPayload) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(payload)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }

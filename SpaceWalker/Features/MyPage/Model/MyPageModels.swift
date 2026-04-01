@@ -41,6 +41,7 @@ struct LocationMetadataTransferPack: Codable {
     let schemaVersion: Int
     let exportedAt: Date
     let appVersion: String
+    let checksum: String?
     let items: [LocationMetadataTransferItem]
 }
 
