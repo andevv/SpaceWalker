@@ -11,7 +11,7 @@
 
 | Map | Calendar Detail | Calendar Detail - 2 | My Page |
 |------|------|------|------|
-| <img width="200" src="https://github.com/user-attachments/assets/ac62e8c1-38f9-407d-b525-ad69e9489693" /> | <img width="200" src="https://github.com/user-attachments/assets/adca53ee-88b1-4c8e-a1f8-14fb0152b070" /> | <img width="200" src="https://github.com/user-attachments/assets/aff3da4b-8167-4678-aa46-e380f516bec2" /> | <img width="200" src="https://github.com/user-attachments/assets/2dbdb77c-fd83-4625-bbf8-9d72d0119dea" /> |
+| <img width="200" src="https://github.com/user-attachments/assets/ac62e8c1-38f9-407d-b525-ad69e9489693" /> | <img width="200" src="https://github.com/user-attachments/assets/adca53ee-88b1-4c8e-a1f8-14fb0152b070" /> | <img width="200" src="https://github.com/user-attachments/assets/aff3da4b-8167-4678-aa46-e380f516bec2" /> |<img width="200" src="https://github.com/user-attachments/assets/b17b846d-a8e3-42d2-9b51-8393cef5e2de" /> |
 
 | My Page - Edit Nickname | My Page - Privacy Policy | My Page - Terms | My Page - OSS License|
 |------|------|------|------|
@@ -58,6 +58,7 @@ flowchart LR
 - **피드**: Masonry 스타일 워터폴 레이아웃, Space별 필터 칩, Kingfisher 이미지 캐싱, 페이지네이션, 좋아요 토글 중복요청 방지.
 - **지도**: 위치 기반 사진/Space 조회(뷰 골격 준비) 및 위치 권한 처리.
 - **마이페이지**: 프로필 이미지 업로드(프리사인드), 닉네임 수정, 약관/정책/오픈소스 라이선스 링크, 회원 탈퇴.
+- **위치 데이터 이전**: MyPage에서 로컬 위치 메타데이터 `내보내기/가져오기`를 지원. 기기 교체 시 동일 사용자 기준 데이터 이전 가능.
 - **안정성**: 401 응답 시 자동 토큰 리프레시 및 재요청. Rx 기반 dispose 관리, 전역 로깅(Apple `Logger` + 커스텀 헬퍼).
 
 ## 기술 스택
@@ -75,7 +76,16 @@ flowchart LR
 - **네트워크**: 단일 `NetworkManager`가 Alamofire 요청을 감싸고, 401 시 토큰 리프레시 후 재시도. 더미 API 모드(`requestDummy`)를 같은 인터페이스로 제공해 개발/테스트를 단순화.
 - **세션/라우팅**: `SceneDelegate`에서 토큰 유무와 `/api/v1/space/my-space` 결과에 따라 루트 VC를 전환(`SignUp` ↔ `SpaceSelect` ↔ `MainTabBar`). `NetworkManager.onRequireReauthentication` 콜백으로 재인증 플로우를 일원화.
 - **데이터 보관**: Realm으로 촬영 메타데이터를 로컬에 저장해 업로드 실패 시 복구 여지 확보. Kingfisher로 원격 이미지 캐시.
+- **로컬 데이터 연속성**: Realm 저장 경로를 iOS 백업 대상 경로로 운용하고, 앱 업데이트 시 기존 경로 DB를 신규 경로로 1회 이전(migration)하도록 구성.
 - **로깅**: OSLog `Logger` + 헬퍼(`LogAuth`, `LogNetwork`, `LogUI`, `LogGeneral`)로 카테고리 기반 로그 관리.
+
+## 위치 메타데이터 이전(Export/Import)
+- **배경**: 위치정보를 서버에 저장하지 않고 온디바이스에서 처리해 개인정보 처리 범위를 최소화.
+- **백업/마이그레이션**: Realm 파일을 iOS 백업 대상 경로에 배치해 Quick Start/백업 복원 시 데이터 연속성을 확보.
+- **사용자 이전 기능**: MyPage에서 `.swlocpack` 파일로 내보내기/가져오기 지원.
+- **무결성 검증**: 파일에 `SHA-256 checksum`을 포함하고 import 시 재계산/비교.
+- **소유자 검증**: pack의 `ownerUserId`와 현재 로그인 사용자 ID를 비교해 타계정 파일 import 차단.
+- **호환성 정책**: `ownerUserId` 또는 `checksum`이 없는 구버전 파일은 import를 거부.
 
 ## 폴더 구조
 - `App/`: `AppDelegate`, `SceneDelegate` – 앱 부팅, 루트 전환, 재인증 콜백.
